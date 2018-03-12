@@ -57,30 +57,31 @@ struct dist_graph_t;
 struct mpi_data_t;
 struct queue_data_t;
 
-struct graph_gen_data_t {  
-  uint64_t n;
-  uint64_t m;
-  uint64_t n_local;
-  uint64_t n_offset;
+struct graph_gen_data_t {
+  uint64_t n;               // global number of vertices
+  uint64_t m;               // global number of edges
+  uint64_t n_local;         // number of vertices handled by this process
+  uint64_t n_offset;        // vertex offset for this process
 
-  uint64_t m_local_read;
-  uint64_t m_local_edges;
+  uint64_t m_local_read;    // number of edges read by this process
+  uint64_t m_local_edges;   // not set by io functions
 
-  uint64_t *gen_edges;
+  uint64_t *gen_edges;      // actual edges read by this process
+  uint64_t *vertex_weights; // weights for each vertex handled by this process
 };
 
 int create_graph(graph_gen_data_t *ggi, dist_graph_t *g);
 
 int create_graph_serial(graph_gen_data_t *ggi, dist_graph_t *g);
 
-int create_graph(dist_graph_t* g, 
-          uint64_t n_global, uint64_t m_global, 
+int create_graph(dist_graph_t* g,
+          uint64_t n_global, uint64_t m_global,
           uint64_t n_local, uint64_t m_local,
           uint64_t* local_offsets, uint64_t* local_adjs, uint64_t* global_ids,
           int32_t* vertex_weights, int32_t* edge_weights);
 
-int create_graph_serial(dist_graph_t* g, 
-          uint64_t n_global, uint64_t m_global, 
+int create_graph_serial(dist_graph_t* g,
+          uint64_t n_global, uint64_t m_global,
           uint64_t n_local, uint64_t m_local,
           uint64_t* local_offsets, uint64_t* local_adjs,
           int32_t* vertex_weights, int32_t* edge_weights);
