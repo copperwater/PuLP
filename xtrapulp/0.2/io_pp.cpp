@@ -49,6 +49,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <iostream>
+#include <fstream>
+#include <sstream>
 
 #include "io_pp.h"
 #include "comms.h"
@@ -58,9 +61,9 @@ extern int procid, nprocs;
 extern bool verbose, debug, verify;
 
 
-int load_graph_edges_32(char *input_filename, graph_gen_data_t *ggi, 
-                        bool offset_vids) 
-{  
+int load_graph_edges_32(char *input_filename, graph_gen_data_t *ggi,
+                        bool offset_vids)
+{
   if (debug) { printf("Task %d load_graph_edges_32() start\n", procid); }
 
   double elt = 0.0;
@@ -69,64 +72,143 @@ int load_graph_edges_32(char *input_filename, graph_gen_data_t *ggi,
     elt = omp_get_wtime();
   }
 
-  FILE *infp = fopen(input_filename, "rb");
-  if(infp == NULL)
+  // check file
+  std::ifstream infile(input_filename);
+  if (!infile) {
     throw_err("load_graph_edges_32() unable to open input file", procid);
-
-  fseek(infp, 0L, SEEK_END);
-  uint64_t file_size = ftell(infp);
-  fseek(infp, 0L, SEEK_SET);
-
-  uint64_t nedges_global = file_size/(2*sizeof(uint32_t));
-  ggi->m = nedges_global;
-
-  uint64_t read_offset_start = procid*2*sizeof(uint32_t)*(nedges_global/nprocs);
-  uint64_t read_offset_end = (procid+1)*2*sizeof(uint32_t)*(nedges_global/nprocs);
-
-  if (procid == nprocs - 1)
-    read_offset_end = 2*sizeof(uint32_t)*nedges_global;
-
-  uint64_t nedges = (read_offset_end - read_offset_start)/8;
-  ggi->m_local_read = nedges;
-
-  if (debug) {
-    printf("Task %d, read_offset_start %ld, read_offset_end %ld, nedges_global %ld, nedges: %ld\n", procid, read_offset_start, read_offset_end, nedges_global, nedges);
   }
 
-  uint32_t* gen_edges_read = (uint32_t*)malloc(2*nedges*sizeof(uint32_t));
-  uint64_t* gen_edges = (uint64_t*)malloc(2*nedges*sizeof(uint64_t));
-  if (gen_edges_read == NULL || gen_edges == NULL)
+  /* METIS file format:
+   * header is 2-4 numbers
+   *    arg 1: # vertices
+   *    arg 2: # edges
+   *    arg 3: 3-digit binary number, optional (for PuLP, should always be 010)
+   *        0x4 = data contains vertex sizes (PuLP currently doesn't use this)
+   *        0x2 = data contains vertex weights
+   *        0x1 = data contains edge weights (PuLP currently doesn't use this)
+   *    arg 4: number of weights for each vertex (required for PuLP)
+   * each line i after this contains information about vertex i (starting at 1)
+   *    first, all the weights of vertex i, as many as specified in the header
+   *    then, all other vertices which have edges to vertex i
+   */
+
+  // header parsing
+  std::istringstream ss;
+  std::string line;
+  uint64_t nverts_global;
+  uint64_t nedges_global;
+  std::string mode;
+  uint32_t weights_per_vertex;
+  getline(infile, line);
+  ss.str(line);
+  if (!(ss >> nverts_global >> nedges_global >> mode >> weights_per_vertex)) {
+    throw_err("load_graph_edges_32() bad header format", procid);
+  }
+  if (mode != "010") {
+    throw_err("load_graph_edges_32() bad fmt parameter: needs to be 010", procid);
+  }
+
+  // set global number of vertices and this process's local number of vertices
+  ggi->n = nverts_global;
+  ggi->n_local = ggi->n / (uint64_t)nprocs;
+  if ((unsigned int) procid < ggi->n % nprocs) {
+      // balancing effort; any spare vertices will get put into the first n%nprocs processes
+      (ggi->n_local)++;
+  }
+
+  // set n_offset, the formula is a bit complicated with how vertices are balanced
+  if ((unsigned int) procid <= ggi->n % nprocs && ggi->n % nprocs > 0) {
+      ggi->n_offset = ((ggi->n / nprocs) + 1) * procid;
+  }
+  else {
+      ggi->n_offset = ggi->n - ((nprocs - procid) * (ggi->n / nprocs));
+  }
+
+  // set global number of edges
+  ggi->m = nedges_global;
+
+  // where are vertex weights stored? nowhere as of yet?
+  // for now, just store them as a local variable...
+  ggi->vertex_weights = (uint64_t*) calloc(weights_per_vertex * ggi->n_local, sizeof(uint32_t));
+  if (ggi->vertex_weights == NULL) {
+    throw_err("load_graph_edges(), unable to allocate vertex weight buffer", procid);
+  }
+
+  /* bad hack: we don't know exactly how many edges are going to be read by the vertices of this
+   * process, we only know the global number. We could either read through the file twice, or
+   * allocate the maximum possible amount of space (the global number of edges).
+   * In this case, allocate the maximum possible amount of space. */
+  uint64_t* gen_edges_read = (uint64_t*) calloc(nedges_global * 2, sizeof(uint64_t));
+  if (gen_edges_read == NULL) {
+    throw_err("load_graph_edges(), unable to allocate edge buffer", procid);
+  }
+
+  printf("Process %d: %ld verts, n_local = %ld, n_offset = %ld\n", procid, ggi->n, ggi->n_local, ggi->n_offset);
+
+  // parse each vertex line
+  uint64_t cur_vert = 0;
+  uint64_t vertctr = 0;
+  for (; getline(infile, line); vertctr++) {
+      if (vertctr < ggi->n_offset) {
+          continue;
+      }
+      else if (vertctr >= ggi->n_offset + ggi->n_local) {
+          break;
+      }
+      ss.clear();
+      ss.str(line);
+      for (uint32_t i = 0; i < weights_per_vertex; ++i) {
+          if (!(ss >> ggi->vertex_weights[(weights_per_vertex * cur_vert) + i])) {
+              throw_err("load_graph_edges(), unable to read a vertex weight", procid);
+          }
+      }
+      uint64_t endpoint;
+      while (ss >> endpoint) {
+          gen_edges_read[ggi->m_local_read] = cur_vert;
+          // note: needs to be endpoint-1 because the file counts vertexes
+          // starting at 1 but the data structure (and cur_vert) count from 0.
+#ifdef EDGES_INCREMENT_BY_2
+          gen_edges_read[ggi->m_local_read + 1] = endpoint-1;
+          ggi->m_local_read += 2;
+#else
+          ggi->m_local_read++;
+#endif
+      }
+      cur_vert++;
+  }
+  ggi->m_local_edges = ggi->m_local_read;
+
+  // now fix gen_edges' allocation to use only the amount of edges used
+  ggi->gen_edges = (uint64_t*) calloc(ggi->m_local_read, sizeof(uint64_t));
+  if (ggi->gen_edges == NULL) {
     throw_err("load_graph_edges(), unable to allocate buffer", procid);
+  }
+  for (uint64_t i = 0; i < ggi->m_local_read; ++i) {
+      ggi->gen_edges[i] = gen_edges_read[i];
+  }
 
-  fseek(infp, read_offset_start, SEEK_SET);
-  if (!fread(gen_edges_read, nedges, 2*sizeof(uint32_t), infp))
-    throw_err("Error: load_graph_edges_32(), can't read input file");
-  fclose(infp);
+  printf("Process %d completed reading edges: ggi->m = %ld, ggi->m_local_read = %ld, ggi->m_local_edges = %ld\n",
+          procid, ggi->m, ggi->m_local_read, ggi->m_local_edges);
 
-  for (uint64_t i = 0; i < nedges*2; ++i)
-    gen_edges[i] = (uint64_t)gen_edges_read[i];
-
-  free(gen_edges_read);
-  ggi->gen_edges = gen_edges;
+  /* // possibly use MPI_Allreduce to check this?
+  if (edgectr / 2 != nedges_global) {
+      printf("edges read = %ld - header = %ld", edgectr/2, nedges_global);
+      throw_err("load_graph_edges_32() number of edges read doesn't match header", procid);
+  }
+  */
 
   if (verbose) {
     elt = omp_get_wtime() - elt;
-    printf("Task %d read %lu edges, %9.6f (s)\n", procid, nedges, elt);
+    printf("Task %d read %lu edges, %9.6f (s)\n", procid, ggi->m_local_read, elt);
   }
-  
-  uint64_t max_n = 0;
-  for (uint64_t i = 0; i < ggi->m_local_read*2; ++i)
-    if (gen_edges[i] > max_n)
-      max_n = gen_edges[i];
 
-  uint64_t n_global;
-  MPI_Allreduce(&max_n, &n_global, 1, MPI_UINT64_T, MPI_MAX, MPI_COMM_WORLD);
-  
-  ggi->n = n_global+1;
-  ggi->n_offset = (uint64_t)procid * (ggi->n / (uint64_t)nprocs + 1);
-  ggi->n_local = ggi->n / (uint64_t)nprocs + 1;
-  if (procid == nprocs - 1 && !offset_vids && !offset_vids)
-    ggi->n_local = n_global - ggi->n_offset + 1; 
+  // compute the maximum number (maximum vertex?) among all vertices read in
+  // in this process
+  // uint64_t max_n = 0;
+  // for (uint64_t i = 0; i < ggi->m_local_read*2; ++i)
+  //   if (gen_edges[i] > max_n)
+  //     max_n = gen_edges[i];
+
 
 
   if (offset_vids)
@@ -134,8 +216,10 @@ int load_graph_edges_32(char *input_filename, graph_gen_data_t *ggi,
 #pragma omp parallel for
     for (uint64_t i = 0; i < ggi->m_local_read*2; ++i)
     {
+        // task id = vertex / processes; task = vertex % processes.
       uint64_t task_id = ggi->gen_edges[i] / (uint64_t)nprocs;
       uint64_t task = ggi->gen_edges[i] % (uint64_t)nprocs;
+      // n / nprocs + 1 = vertices per process, so task_offset is the
       uint64_t task_offset = task * (ggi->n / (uint64_t)nprocs + 1);
       uint64_t new_vid = task_offset + task_id;
       new_vid = (new_vid >= ggi->n) ? (ggi->n - 1) : new_vid;
@@ -144,7 +228,7 @@ int load_graph_edges_32(char *input_filename, graph_gen_data_t *ggi,
   }
 
   if (verbose) {
-    printf("Task %d, n %lu, n_offset %lu, n_local %lu\n", 
+    printf("Task %d, n %lu, n_offset %lu, n_local %lu\n",
            procid, ggi->n, ggi->n_offset, ggi->n_local);
   }
 
@@ -153,9 +237,9 @@ int load_graph_edges_32(char *input_filename, graph_gen_data_t *ggi,
 }
 
 
-int load_graph_edges_64(char *input_filename, graph_gen_data_t *ggi, 
-                        bool offset_vids) 
-{  
+int load_graph_edges_64(char *input_filename, graph_gen_data_t *ggi,
+                        bool offset_vids)
+{
   if (debug) { printf("Task %d load_graph_edges_64() start\n", procid); }
 
   double elt = 0.0;
@@ -193,7 +277,7 @@ int load_graph_edges_64(char *input_filename, graph_gen_data_t *ggi,
     throw_err("load_graph_edges(), unable to allocate buffer", procid);
 
   fseek(infp, read_offset_start, SEEK_SET);
-  if (!fread(gen_edges, nedges, 2*sizeof(uint32_t), infp))    
+  if (!fread(gen_edges, nedges, 2*sizeof(uint32_t), infp))
     throw_err("Error: load_graph_edges_64(), can't read input file");
   fclose(infp);
 
@@ -203,7 +287,7 @@ int load_graph_edges_64(char *input_filename, graph_gen_data_t *ggi,
     elt = omp_get_wtime() - elt;
     printf("Task %d read %lu edges, %9.6f (s)\n", procid, nedges, elt);
   }
-  
+
   uint64_t max_n = 0;
   for (uint64_t i = 0; i < ggi->m_local_read*2; ++i)
     if (gen_edges[i] > max_n)
@@ -211,12 +295,12 @@ int load_graph_edges_64(char *input_filename, graph_gen_data_t *ggi,
 
   uint64_t n_global;
   MPI_Allreduce(&max_n, &n_global, 1, MPI_UINT64_T, MPI_MAX, MPI_COMM_WORLD);
-  
+
   ggi->n = n_global+1;
   ggi->n_offset = (uint64_t)procid * (ggi->n / (uint64_t)nprocs + 1);
   ggi->n_local = ggi->n / (uint64_t)nprocs + 1;
   if (procid == nprocs - 1 && !offset_vids && !offset_vids)
-    ggi->n_local = n_global - ggi->n_offset + 1; 
+    ggi->n_local = n_global - ggi->n_offset + 1;
 
 
   if (offset_vids)
@@ -234,7 +318,7 @@ int load_graph_edges_64(char *input_filename, graph_gen_data_t *ggi,
   }
 
   if (verbose) {
-    printf("Task %d, n %lu, n_offset %lu, n_local %lu\n", 
+    printf("Task %d, n %lu, n_offset %lu, n_local %lu\n",
            procid, ggi->n, ggi->n_offset, ggi->n_local);
   }
 
@@ -272,9 +356,9 @@ int exchange_edges(graph_gen_data_t *ggi, mpi_data_t* comm)
     temp_sendcounts[vert_task2] += 2;
   }
 
-  MPI_Alltoall(temp_sendcounts, 1, MPI_UINT64_T, 
+  MPI_Alltoall(temp_sendcounts, 1, MPI_UINT64_T,
                temp_recvcounts, 1, MPI_UINT64_T, MPI_COMM_WORLD);
-  
+
   uint64_t total_recv = 0;
   uint64_t total_send = 0;
   for (int32_t i = 0; i < nprocs; ++i)
@@ -287,17 +371,17 @@ int exchange_edges(graph_gen_data_t *ggi, mpi_data_t* comm)
 
   uint64_t* recvbuf = (uint64_t*)malloc(total_recv*sizeof(uint64_t));
   if (recvbuf == NULL)
-  { 
+  {
     fprintf(stderr, "Task %d Error: exchange_out_edges(), unable to allocate buffer\n", procid);
     MPI_Abort(MPI_COMM_WORLD, 1);
-  }  
+  }
 
   uint64_t max_transfer = total_send > total_recv ? total_send : total_recv;
   uint64_t num_comms = max_transfer / (uint64_t)(MAX_SEND_SIZE/2) + 1;
-  MPI_Allreduce(MPI_IN_PLACE, &num_comms, 1, 
+  MPI_Allreduce(MPI_IN_PLACE, &num_comms, 1,
                 MPI_UINT64_T, MPI_MAX, MPI_COMM_WORLD);
 
-  if (debug) 
+  if (debug)
     printf("Task %d exchange_edges() num_comms %lu total_send %lu total_recv %lu\n", procid, num_comms, total_send, total_recv);
 
   uint64_t sum_recv = 0;
@@ -325,7 +409,7 @@ int exchange_edges(graph_gen_data_t *ggi, mpi_data_t* comm)
       comm->sendcounts[vert_task2] += 2;
     }
 
-    MPI_Alltoall(comm->sendcounts, 1, MPI_INT32_T, 
+    MPI_Alltoall(comm->sendcounts, 1, MPI_INT32_T,
                  comm->recvcounts, 1, MPI_INT32_T, MPI_COMM_WORLD);
 
     comm->sdispls[0] = 0;
@@ -342,7 +426,7 @@ int exchange_edges(graph_gen_data_t *ggi, mpi_data_t* comm)
     int32_t cur_recv = comm->rdispls[nprocs-1] + comm->recvcounts[nprocs-1];
     uint64_t* sendbuf = (uint64_t*) malloc((uint64_t)cur_send*sizeof(uint64_t));
     if (sendbuf == NULL)
-    { 
+    {
       fprintf(stderr, "Task %d Error: exchange_out_edges(), unable to allocate comm buffers", procid);
       MPI_Abort(MPI_COMM_WORLD, 1);
     }
@@ -354,13 +438,13 @@ int exchange_edges(graph_gen_data_t *ggi, mpi_data_t* comm)
       int32_t vert_task1 = (int32_t)(vert1 / n_per_rank);
       int32_t vert_task2 = (int32_t)(vert2 / n_per_rank);
 
-      sendbuf[comm->sdispls_cpy[vert_task1]++] = vert1; 
+      sendbuf[comm->sdispls_cpy[vert_task1]++] = vert1;
       sendbuf[comm->sdispls_cpy[vert_task1]++] = vert2;
-      sendbuf[comm->sdispls_cpy[vert_task2]++] = vert2; 
+      sendbuf[comm->sdispls_cpy[vert_task2]++] = vert2;
       sendbuf[comm->sdispls_cpy[vert_task2]++] = vert1;
     }
 
-    MPI_Alltoallv(sendbuf, comm->sendcounts, comm->sdispls, MPI_UINT64_T, 
+    MPI_Alltoallv(sendbuf, comm->sendcounts, comm->sdispls, MPI_UINT64_T,
                   recvbuf+sum_recv, comm->recvcounts, comm->rdispls,
                   MPI_UINT64_T, MPI_COMM_WORLD);
     sum_recv += cur_recv;
