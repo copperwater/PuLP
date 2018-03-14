@@ -1,0 +1,6 @@
+*.o
+*.a
+
+pulp/0.2/pulp
+xtrapulp/0.2/xtrapulp
+
