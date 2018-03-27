@@ -58,16 +58,18 @@ struct mpi_data_t;
 struct queue_data_t;
 
 struct graph_gen_data_t {
-  uint64_t n;               // global number of vertices
-  uint64_t m;               // global number of edges
-  uint64_t n_local;         // number of vertices handled by this process
-  uint64_t n_offset;        // vertex offset for this process
+  uint64_t n;                  // global number of vertices
+  uint64_t m;                  // global number of edges
+  uint64_t n_local;            // number of vertices handled by this process
+  uint64_t n_offset;           // vertex offset for this process
 
-  uint64_t m_local_read;    // number of edges read by this process
-  uint64_t m_local_edges;   // not set by io functions
+  uint64_t m_local_read;       // number of edges read by this process
+  uint64_t m_local_edges;      // not set by io functions
 
-  uint64_t *gen_edges;      // actual edges read by this process
-  uint64_t *vertex_weights; // weights for each vertex handled by this process
+  uint64_t *gen_edges;         // actual edges read by this process
+  double   *unscaled_vweights; // raw weights read in; only used in io functions
+  uint64_t *vertex_weights;    // weights for each vertex handled by this process
+  uint64_t weights_per_vertex; // number of weights handled by this process
 };
 
 int create_graph(graph_gen_data_t *ggi, dist_graph_t *g);

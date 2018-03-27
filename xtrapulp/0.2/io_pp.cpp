@@ -49,6 +49,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <math.h>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -149,11 +150,13 @@ int load_graph_edges_32(char *input_filename, graph_gen_data_t *ggi,
   // set global number of edges
   ggi->m = nedges_global;
 
-  // where are vertex weights stored? nowhere as of yet?
-  // for now, just store them as a local variable...
-  ggi->vertex_weights = (uint64_t*) calloc(weights_per_vertex * ggi->n_local, sizeof(uint64_t));
-  if (ggi->vertex_weights == NULL) {
-    throw_err("load_graph_edges(), unable to allocate vertex weight buffer", procid);
+  ggi->unscaled_vweights = NULL;
+  if (weights_per_vertex > 0) {
+    ggi->unscaled_vweights = (double*) calloc(weights_per_vertex * ggi->n_local, sizeof(double));
+    if (ggi->unscaled_vweights == NULL) {
+        throw_err("load_graph_edges(), unable to allocate vertex weight buffer", procid);
+    }
+    ggi->weights_per_vertex = weights_per_vertex;
   }
 
   /* bad hack: we don't know exactly how many edges are going to be read by the vertices of this
@@ -185,7 +188,7 @@ int load_graph_edges_32(char *input_filename, graph_gen_data_t *ggi,
       for (uint64_t i = 0; i < weights_per_vertex; ++i) {
           // the nth vertex read by this process
           uint64_t weight_offset = (weights_per_vertex * (cur_vert - ggi->n_offset));
-          if (!(ss >> ggi->vertex_weights[weight_offset + i])) {
+          if (!(ss >> ggi->unscaled_vweights[weight_offset + i])) {
               throw_err("load_graph_edges(), unable to read a vertex weight", procid);
           }
       }
@@ -539,4 +542,79 @@ int exchange_edges(graph_gen_data_t *ggi, mpi_data_t* comm)
 
   if (debug) { printf("Task %d exchange_out_edges() success\n", procid); }
   return 0;
+}
+
+void scale_weights(graph_gen_data_t* ggi, int scaling_method) {
+    /* Scaling method values:
+     * -1 = used by main to represent no scaling. Should not be passed to this function.
+     *  0 = scale by reducing the weight of
+     *  1 = unimplemented.
+     */
+    if (scaling_method < 0 || scaling_method > 0) {
+        throw_err("scale_weights, bad scaling method");
+    }
+
+    // for shorthand
+    const uint64_t wpv = ggi->weights_per_vertex;
+    const double INT_EPSILON = 1e-5;
+
+    // Compute the sum of each ordered weight. Only do the sum for this process's vertices though,
+    // and then we will Allreduce it to get the global sums of each ordered weight.
+    // This step is analogous to the Zoltan aggregate_weights.
+    double* local_weight_sum = (double*) calloc(wpv + 1, sizeof(double)); //should be zeroed by default
+    double* global_weight_sum = (double*) calloc(wpv + 1, sizeof(double)); //should be zeroed by default
+
+    // The reason for the +1 in the array size is so that we don't have to call Allreduce twice;
+    // the last value is a sentinel for if there are any non-integer weights.
+    double* non_int_sentinel = local_weight_sum + wpv;
+    *non_int_sentinel = 0;
+
+    for (uint64_t j = 0; j < ggi->n_local; ++j) {
+        for (uint64_t i = 0; i < ggi->weights_per_vertex; ++i) {
+            double this_weight = ggi->unscaled_vweights[(j * wpv) + i];
+            local_weight_sum[i] += this_weight;
+            if (*non_int_sentinel == 0
+                && fabs(floor(this_weight + 0.5) - this_weight) > INT_EPSILON) {
+                *non_int_sentinel = 1;
+            }
+        }
+    }
+
+    // sum all local weight sums (plus sentinel) into the global buffer
+    MPI_Allreduce(local_weight_sum, global_weight_sum, wpv+1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+    /* next step: scale the nth weight on each vertex, using three main inputs:
+     * the nth global weight sum, the sentinel, and scaling_method. */
+    const double MAX_ALLOWABLE_SUM = 1e9;
+    /* Scale if any of the following are true:
+     * 1) non-integer weights exist
+     * 2) weights are too tiny
+     * 3) weights are too large
+     */
+    double scale = 1.0;
+    ggi->vertex_weights = (uint64_t*) calloc(wpv * ggi->n_local, sizeof(uint64_t));
+
+    for (uint64_t i = 0; i < ggi->weights_per_vertex; ++i) {
+        if (*non_int_sentinel > 0 || global_weight_sum[i] < INT_EPSILON
+            || global_weight_sum[i] > MAX_ALLOWABLE_SUM) {
+            if (scaling_method == 0) {
+                // not sure why this check exists...
+                if (global_weight_sum[i] > 0) {
+                    scale = MAX_ALLOWABLE_SUM / global_weight_sum[i];
+                }
+            }
+            else if (scaling_method == 1) {
+                // TODO: this option is unimplemented!
+            }
+        }
+
+        for (uint64_t j = 0; j < ggi->n_local; ++j) {
+            uint64_t index = (j * wpv) + i;
+            ggi->vertex_weights[index] = (uint64_t) ceil(ggi->unscaled_vweights[index] * scale);
+        }
+    }
+
+    free(ggi->unscaled_vweights);
+    free(local_weight_sum);
+    free(global_weight_sum);
 }
