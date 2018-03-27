@@ -93,11 +93,13 @@ void print_usage_full(char** argv)
   printf("\t\tInput parts file [default: none]\n");
   printf("\t-s [seed]:\n");
   printf("\t\tSet seed integer [default: random int]\n");
+  printf("\t-w [scaling-method]:\n");
+  printf("\t\tScale vertex weights by the given method [default: 0]\n");
   exit(0);
 }
 
 
-int main(int argc, char **argv) 
+int main(int argc, char **argv)
 {
   srand(time(0));
   setbuf(stdout, 0);
@@ -110,7 +112,7 @@ int main(int argc, char **argv)
   MPI_Comm_rank(MPI_COMM_WORLD, &procid);
   MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
-  if (argc < 3) 
+  if (argc < 3)
   {
     if (procid == 0)
       print_usage_full(argv);
@@ -120,7 +122,7 @@ int main(int argc, char **argv)
   }
 
   char input_filename[1024]; input_filename[0] = '\0';
-  char graphname[1024]; graphname[0] = '\0';  
+  char graphname[1024]; graphname[0] = '\0';
   char* graph_name = strdup(argv[1]);
   char* num_parts_str = strdup(argv[2]);
   char parts_out[1024]; parts_out[0] = '\0';
@@ -133,6 +135,7 @@ int main(int argc, char **argv)
   uint64_t num_runs = 1;
   bool output_time = true;
   bool output_quality = false;
+  int weight_scaling_method = -1;
 
   bool gen_rmat = false;
   bool gen_rand = false;
@@ -149,7 +152,7 @@ int main(int argc, char **argv)
   bool do_maxcut_balance = false;
 
   char c;
-  while ((c = getopt (argc, argv, "v:e:o:i:m:s:p:dlqtc")) != -1) {
+  while ((c = getopt (argc, argv, "v:e:o:i:m:s:p:w:dlqtc")) != -1) {
     switch (c) {
       case 'h':
         print_usage_full(argv);
@@ -208,6 +211,9 @@ int main(int argc, char **argv)
       case 't':
         output_time = true;
         break;
+      case 'w':
+        weight_scaling_method = strtol(optarg, NULL, 10);
+        break;
       default:
         throw_err("Input argument format error");
     }
@@ -215,7 +221,7 @@ int main(int argc, char **argv)
 
   graph_gen_data_t ggi;
   dist_graph_t g;
-  pulp_part_control_t ppc = {vert_balance, edge_balance, 
+  pulp_part_control_t ppc = {vert_balance, edge_balance,
       do_lp_init, do_bfs_init, do_repart, do_edge_balance, do_maxcut_balance,
       false, pulp_seed};
 
@@ -248,6 +254,9 @@ int main(int argc, char **argv)
     double elt = omp_get_wtime();
     strcat(graphname, input_filename);
     load_graph_edges_32(input_filename, &ggi, offset_vids);
+    if (weight_scaling_method >= 0 && ggi.vertex_weights != NULL) {
+        scale_weights(&ggi, weight_scaling_method);
+    }
     if (procid == 0) printf("Reading Finished: %9.6lf (s)\n", omp_get_wtime() - elt);
   }
 
@@ -291,8 +300,8 @@ int main(int argc, char **argv)
     {
       part_eval(&g, &pulp);
       //if (procid == 0)
-      //  printf("&&& XtraPuLP, %s, %d, %2.3lf, %2.3lf, %li, %li\n", 
-      //   graphname, num_parts, pulp.max_v, pulp.max_e, 
+      //  printf("&&& XtraPuLP, %s, %d, %2.3lf, %2.3lf, %li, %li\n",
+      //   graphname, num_parts, pulp.max_v, pulp.max_e,
       //    pulp.cut_size, pulp.max_cut);
     }
 
@@ -306,7 +315,7 @@ int main(int argc, char **argv)
     }
     if (num_runs > 1)
     {
-      std::stringstream ss; 
+      std::stringstream ss;
       ss << "." << i;
       strcat(temp_out, ss.str().c_str());
     }
@@ -315,7 +324,7 @@ int main(int argc, char **argv)
     output_parts(temp_out, &g, pulp.local_parts, offset_vids);
     if (procid == 0) printf("Done Writing: %9.6lf (s)\n", omp_get_wtime() - elt);
   }
-  if (output_time && procid == 0 && num_runs > 1) 
+  if (output_time && procid == 0 && num_runs > 1)
   {
     printf("XtraPuLP Avg. Time: %9.6lf (s)\n", (total_elt / (double)num_runs) );
   }
