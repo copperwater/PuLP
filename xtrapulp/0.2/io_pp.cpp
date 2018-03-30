@@ -583,6 +583,9 @@ void scale_weights(graph_gen_data_t* ggi, int scaling_method) {
     // sum all local weight sums (plus sentinel) into the global buffer
     MPI_Allreduce(local_weight_sum, global_weight_sum, wpv+1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
+    // move the sentinel to global_weight_sum, as this represents the sum of all the local sentinels
+    non_int_sentinel = global_weight_sum + wpv;
+
     /* next step: scale the nth weight on each vertex, using three main inputs:
      * the nth global weight sum, the sentinel, and scaling_method. */
     const double MAX_ALLOWABLE_SUM = 1e9;
@@ -609,12 +612,58 @@ void scale_weights(graph_gen_data_t* ggi, int scaling_method) {
         }
 
         for (uint64_t j = 0; j < ggi->n_local; ++j) {
-            uint64_t index = (j * wpv) + i;
+            const uint64_t index = (j * wpv) + i;
             ggi->vertex_weights[index] = (uint64_t) ceil(ggi->unscaled_vweights[index] * scale);
         }
     }
-
     free(ggi->unscaled_vweights);
+
+    for (uint64_t k = 0; k < ggi->n_local + wpv; ++k) {
+        printf("X %d %lx\n", procid, ggi->vertex_weights[k]);
+    }
+
+    /* next step: reduce all weights to a single number
+     * TODO: do this in a way that doesn't necessarily reduce to a single
+     * number, but a smaller number that's more efficient than re-partitioning
+     * each time */
+    int norm_method = 1;
+    /* norm method: 1 = 1-norm (taxicab), 2 = 2-norm (Euclidean), else = inf-norm (max) */
+    uint64_t result = 0;
+    uint64_t* normed_weights = (uint64_t*) calloc(ggi->n_local, sizeof(uint64_t));
+    for (uint64_t j = 0; j < ggi->n_local; ++j) {
+        result = 0;
+        for (uint64_t i = 0; i < wpv; ++i) {
+            const uint64_t index = (j * wpv) + i;
+            if (norm_method == 0) {
+                ;
+            }
+            else if (norm_method == 1) {
+                result += ggi->vertex_weights[index];
+            }
+            else if (norm_method == 2) {
+                // Possible overflow here? Is this a concern?
+                // TODO: should this norm in particular be done when we're still dealing with doubles?
+                result += (ggi->vertex_weights[index] * ggi->vertex_weights[index]);
+            }
+            else {
+                if (ggi->vertex_weights[index] > result) {
+                    result = ggi->vertex_weights[index];
+                }
+            }
+        }
+        if (norm_method == 2) {
+            result = (uint64_t) sqrt(result);
+        }
+        normed_weights[j] = result;
+    }
+    free(ggi->vertex_weights);
+    ggi->vertex_weights = normed_weights;
+    ggi->weights_per_vertex = 1;
+
+    for (uint64_t j=0; j<ggi->n_local; ++j) {
+        printf("%d %ld\n", procid, ggi->vertex_weights[j]);
+    }
+
     free(local_weight_sum);
     free(global_weight_sum);
 }
