@@ -60,7 +60,7 @@ extern int procid, nprocs;
 extern bool verbose, debug, verify;
 
 int create_graph(graph_gen_data_t *ggi, dist_graph_t *g)
-{  
+{
   if (debug) { printf("Task %d create_graph() start\n", procid); }
 
   double elt = 0.0;
@@ -74,7 +74,8 @@ int create_graph(graph_gen_data_t *ggi, dist_graph_t *g)
   g->n_offset = ggi->n_offset;
   g->m = ggi->m;
   g->m_local = ggi->m_local_edges;
-  g->vertex_weights = NULL;
+  g->vertex_weights = ggi->vertex_weights;
+  g->weights_per_vertex = ggi->weights_per_vertex;
   g->edge_weights = NULL;
   g->map = (struct fast_map*)malloc(sizeof(struct fast_map));
 
@@ -103,7 +104,7 @@ int create_graph(graph_gen_data_t *ggi, dist_graph_t *g)
 
   for (uint64_t i = 0; i < g->m_local*2; i+=2)
     out_edges[temp_counts[ggi->gen_edges[i] - g->n_offset]++] = ggi->gen_edges[i+1];
-  
+
   free(ggi->gen_edges);
   free(temp_counts);
   g->out_edges = out_edges;
@@ -175,7 +176,7 @@ int create_graph_serial(graph_gen_data_t *ggi, dist_graph_t *g)
   g->out_edges = out_edges;
   g->out_degree_list = out_degree_list;
 
-  g->local_unmap = (uint64_t*)malloc(g->n_local*sizeof(uint64_t));  
+  g->local_unmap = (uint64_t*)malloc(g->n_local*sizeof(uint64_t));
   if (g->local_unmap == NULL)
     throw_err("create_graph_serial(), unable to allocate unmap\n", procid);
 
@@ -196,13 +197,13 @@ int create_graph_serial(graph_gen_data_t *ggi, dist_graph_t *g)
   return 0;
 }
 
-int create_graph(dist_graph_t* g, 
-          uint64_t n_global, uint64_t m_global, 
+int create_graph(dist_graph_t* g,
+          uint64_t n_global, uint64_t m_global,
           uint64_t n_local, uint64_t m_local,
-          uint64_t* local_offsets, uint64_t* local_adjs, 
+          uint64_t* local_offsets, uint64_t* local_adjs,
           uint64_t* global_ids,
           int32_t* vertex_weights, int32_t* edge_weights)
-{ 
+{
   if (debug) { printf("Task %d create_graph() start\n", procid); }
 
   double elt = 0.0;
@@ -221,13 +222,17 @@ int create_graph(dist_graph_t* g,
 
   g->out_edges = local_adjs;
   g->out_degree_list = local_offsets;
-  if (vertex_weights != NULL) 
+  if (vertex_weights != NULL)
   {
     g->vertex_weights = vertex_weights;
-    g->vertex_weights_sum = 0;
-    for (uint64_t i = 0; i < g->n_local; ++i)
-      g->vertex_weights_sum += g->vertex_weights[i];
-    MPI_Allreduce(MPI_IN_PLACE, &g->vertex_weights_sum, 1, 
+    g->vertex_weights_sum = (int64_t*) calloc(g->weights_per_vertex, sizeof(int64_t));
+    for (uint64_t i = 0; i < g->weights_per_vertex; ++i) {
+        for (uint64_t j = 0; j < g->n_local; ++j) {
+            uint64_t index = (j * g->weights_per_vertex) + i;
+            g->vertex_weights_sum[i] += g->vertex_weights[index];
+        }
+    }
+    MPI_Allreduce(MPI_IN_PLACE, g->vertex_weights_sum, g->weights_per_vertex,
                   MPI_UINT64_T, MPI_SUM, MPI_COMM_WORLD);
   }
   else g->vertex_weights = NULL;
@@ -252,8 +257,8 @@ int create_graph(dist_graph_t* g,
 }
 
 
-int create_graph_serial(dist_graph_t* g, 
-          uint64_t n_global, uint64_t m_global, 
+int create_graph_serial(dist_graph_t* g,
+          uint64_t n_global, uint64_t m_global,
           uint64_t n_local, uint64_t m_local,
           uint64_t* local_offsets, uint64_t* local_adjs,
           int32_t* vertex_weights, int32_t* edge_weights)
@@ -278,18 +283,22 @@ int create_graph_serial(dist_graph_t* g,
 
   g->out_edges = local_adjs;
   g->out_degree_list = local_offsets;
-  if (vertex_weights != NULL) 
+  if (vertex_weights != NULL)
   {
     g->vertex_weights = vertex_weights;
-    g->vertex_weights_sum = 0;
-    for (uint64_t i = 0; i < g->n; ++i)
-      g->vertex_weights_sum += g->vertex_weights[i];
+    g->vertex_weights_sum = (int64_t*) calloc(g->weights_per_vertex, sizeof(int64_t));
+    for (uint64_t i = 0; i < g->weights_per_vertex; ++i) {
+        for (uint64_t j = 0; j < g->n; ++j) {
+            uint64_t index = (j * g->weights_per_vertex) + i;
+            g->vertex_weights_sum[i] += g->vertex_weights[index];
+        }
+    }
   }
   else g->vertex_weights = NULL;
   if (edge_weights != NULL) g->edge_weights = edge_weights;
-  else g->edge_weights = NULL; 
+  else g->edge_weights = NULL;
 
-  g->local_unmap = (uint64_t*)malloc(g->n_local*sizeof(uint64_t));  
+  g->local_unmap = (uint64_t*)malloc(g->n_local*sizeof(uint64_t));
   if (g->local_unmap == NULL)
     throw_err("create_graph_serial(), unable to allocate unmap\n", procid);
 
@@ -327,7 +336,7 @@ int clear_graph(dist_graph_t *g)
 
   if (debug) { printf("Task %d clear_graph() success\n", procid); }
   return 0;
-} 
+}
 
 
 int relabel_edges(dist_graph_t *g)
@@ -369,7 +378,7 @@ int relabel_edges(dist_graph_t *g, uint64_t* vert_dist)
       set_value_uq(g->map, out, cur_label);
       g->out_edges[i] = cur_label++;
     }
-    else        
+    else
       g->out_edges[i] = val;
   }
 
@@ -395,7 +404,7 @@ int relabel_edges(dist_graph_t *g, uint64_t* vert_dist)
 
   if (vert_dist == NULL)
   {
-    uint64_t n_per_rank = g->n / (uint64_t)nprocs + 1;  
+    uint64_t n_per_rank = g->n / (uint64_t)nprocs + 1;
 
 #pragma omp parallel for
     for (uint64_t i = 0; i < g->n_ghost; ++i)
@@ -405,7 +414,7 @@ int relabel_edges(dist_graph_t *g, uint64_t* vert_dist)
   {
  #pragma omp parallel for
     for (uint64_t i = 0; i < g->n_ghost; ++i)
-    {   
+    {
       uint64_t global_id = g->ghost_unmap[i];
       int32_t rank = highest_less_than(vert_dist, global_id);
       g->ghost_tasks[i] = rank;
@@ -414,7 +423,7 @@ int relabel_edges(dist_graph_t *g, uint64_t* vert_dist)
 
   if (verbose) {
     elt = omp_get_wtime() - elt;
-    printf(" Task %d relabel_edges() %9.6f (s)\n", procid, elt); 
+    printf(" Task %d relabel_edges() %9.6f (s)\n", procid, elt);
   }
 
   if (debug) { printf("Task %d relabel_edges() success\n", procid); }
@@ -426,7 +435,7 @@ int relabel_edges(dist_graph_t *g, uint64_t* vert_dist)
 
 
 int get_max_degree_vert(dist_graph_t *g)
-{ 
+{
   if (debug) { printf("Task %d get_max_degree_vert() start\n", procid); }
   double elt = 0.0;
   if (verbose) {
@@ -463,7 +472,7 @@ int get_max_degree_vert(dist_graph_t *g)
 
   if (verbose) {
     elt = omp_get_wtime() - elt;
-    printf("Task %d, max_degree %lu, max_vert %lu, %f (s)\n", 
+    printf("Task %d, max_degree %lu, max_vert %lu, %f (s)\n",
            procid, max_degree, max_vert, elt);
   }
 
@@ -500,7 +509,7 @@ int get_ghost_degrees(dist_graph_t* g, mpi_data_t* comm, queue_data_t* q)
   for (int32_t i = 0; i < nprocs; ++i)
     comm->sendcounts_temp[i] = 0;
 
-#pragma omp parallel 
+#pragma omp parallel
 {
   thread_queue_t tq;
   thread_comm_t tc;
@@ -523,12 +532,12 @@ int get_ghost_degrees(dist_graph_t* g, mpi_data_t* comm, queue_data_t* q)
 
 #pragma omp single
 {
-  init_sendbuf_vid_data(comm);    
+  init_sendbuf_vid_data(comm);
 }
 
 #pragma omp for schedule(guided) nowait
   for (uint64_t i = 0; i < g->n_local; ++i)
-    update_vid_data_queues(g, &tc, comm, i, 
+    update_vid_data_queues(g, &tc, comm, i,
                            (out_degree(g, i)));
 
   empty_vid_data(&tc, comm);
