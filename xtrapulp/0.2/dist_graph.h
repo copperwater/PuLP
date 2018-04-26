@@ -68,7 +68,7 @@ struct graph_gen_data_t {
 
   uint64_t *gen_edges;         // actual edges read by this process
   double   *unscaled_vweights; // raw weights read in; only used in io functions
-  uint64_t *vertex_weights;    // weights for each vertex handled by this process
+  int32_t  *vertex_weights;    // weights for each vertex handled by this process
   uint64_t weights_per_vertex; // number of weights handled by this process
 };
 

@@ -544,18 +544,31 @@ int exchange_edges(graph_gen_data_t *ggi, mpi_data_t* comm)
   return 0;
 }
 
+/* Scale the unscaled vertex weights from ggi and place them in vertex_weights. */
 void scale_weights(graph_gen_data_t* ggi, int scaling_method) {
-    /* Scaling method values:
-     * -1 = used by main to represent no scaling. Should not be passed to this function.
-     *  0 = scale by reducing the weight of
-     *  1 = unimplemented.
-     */
-    if (scaling_method < 0 || scaling_method > 0) {
-        throw_err("scale_weights, bad scaling method");
-    }
 
     // for shorthand
     const uint64_t wpv = ggi->weights_per_vertex;
+    /* Note: This used to be uint64_t, but was changed to match dist_graph_t vertex weights. */
+    ggi->vertex_weights = (int32_t*) calloc(wpv * ggi->n_local, sizeof(uint64_t));
+
+    /* Scaling method values:
+     * -1 = No scaling.
+     *  0 = scale by reducing the weight of
+     *  1 = unimplemented.
+     */
+    if (scaling_method < 0) {
+        for (uint64_t i = 0; i < wpv * ggi->n_local; i++) {
+            ggi->vertex_weights[i] = (int32_t) ggi->unscaled_vweights[i];
+        }
+        free(ggi->unscaled_vweights);
+        ggi->unscaled_vweights = NULL;
+        return;
+    }
+    else if(scaling_method > 0) {
+        throw_err("scale_weights, bad scaling method");
+    }
+
     const double INT_EPSILON = 1e-5;
 
     // Compute the sum of each ordered weight. Only do the sum for this process's vertices though,
@@ -595,7 +608,6 @@ void scale_weights(graph_gen_data_t* ggi, int scaling_method) {
      * 3) weights are too large
      */
     double scale = 1.0;
-    ggi->vertex_weights = (uint64_t*) calloc(wpv * ggi->n_local, sizeof(uint64_t));
 
     for (uint64_t i = 0; i < ggi->weights_per_vertex; ++i) {
         if (*non_int_sentinel > 0 || global_weight_sum[i] < INT_EPSILON
@@ -613,23 +625,24 @@ void scale_weights(graph_gen_data_t* ggi, int scaling_method) {
 
         for (uint64_t j = 0; j < ggi->n_local; ++j) {
             const uint64_t index = (j * wpv) + i;
-            ggi->vertex_weights[index] = (uint64_t) ceil(ggi->unscaled_vweights[index] * scale);
+            ggi->vertex_weights[index] = (int32_t) ceil(ggi->unscaled_vweights[index] * scale);
         }
     }
     free(ggi->unscaled_vweights);
+    ggi->unscaled_vweights = NULL;
 
-    for (uint64_t k = 0; k < ggi->n_local + wpv; ++k) {
-        printf("X %d %lx\n", procid, ggi->vertex_weights[k]);
-    }
+    // for (uint64_t k = 0; k < ggi->n_local + wpv; ++k) {
+    //     printf("X %d %x\n", procid, ggi->vertex_weights[k]);
+    // }
 
     /* next step: reduce all weights to a single number
      * TODO: do this in a way that doesn't necessarily reduce to a single
      * number, but a smaller number that's more efficient than re-partitioning
      * each time */
     int norm_method = 1;
-    /* norm method: 1 = 1-norm (taxicab), 2 = 2-norm (Euclidean), else = inf-norm (max) */
-    uint64_t result = 0;
-    uint64_t* normed_weights = (uint64_t*) calloc(ggi->n_local, sizeof(uint64_t));
+    /* norm method: 1 = 1-norm (sum), 2 = 2-norm (Euclidean), else = inf-norm (max) */
+    int32_t result = 0;
+    int32_t* normed_weights = (int32_t*) calloc(ggi->n_local, sizeof(int32_t));
     for (uint64_t j = 0; j < ggi->n_local; ++j) {
         result = 0;
         for (uint64_t i = 0; i < wpv; ++i) {
@@ -652,7 +665,7 @@ void scale_weights(graph_gen_data_t* ggi, int scaling_method) {
             }
         }
         if (norm_method == 2) {
-            result = (uint64_t) sqrt(result);
+            result = (int32_t) sqrt(result);
         }
         normed_weights[j] = result;
     }
@@ -661,7 +674,7 @@ void scale_weights(graph_gen_data_t* ggi, int scaling_method) {
     ggi->weights_per_vertex = 1;
 
     for (uint64_t j=0; j<ggi->n_local; ++j) {
-        printf("%d %ld\n", procid, ggi->vertex_weights[j]);
+        printf("%d %d\n", procid, ggi->vertex_weights[j]);
     }
 
     free(local_weight_sum);

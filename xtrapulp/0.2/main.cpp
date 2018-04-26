@@ -223,7 +223,7 @@ int main(int argc, char **argv)
   dist_graph_t g;
   pulp_part_control_t ppc = {vert_balance, edge_balance,
       do_lp_init, do_bfs_init, do_repart, do_edge_balance, do_maxcut_balance,
-      false, pulp_seed};
+      true, pulp_seed};
 
   mpi_data_t comm;
   init_comm_data(&comm);
@@ -254,7 +254,7 @@ int main(int argc, char **argv)
     double elt = omp_get_wtime();
     strcat(graphname, input_filename);
     load_graph_edges_32(input_filename, &ggi, offset_vids);
-    if (weight_scaling_method >= 0 && ggi.vertex_weights != NULL) {
+    if (ggi.unscaled_vweights != NULL) {
         scale_weights(&ggi, weight_scaling_method);
     }
     if (procid == 0) printf("Reading Finished: %9.6lf (s)\n", omp_get_wtime() - elt);
