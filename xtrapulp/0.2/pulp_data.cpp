@@ -55,20 +55,20 @@ extern int procid, nprocs;
 extern bool verbose, debug, verify;
 
 void init_thread_pulp(thread_pulp_t* tp, pulp_data_t* pulp)
-{  
-  //if (debug) printf("Task %d init_thread_pulp() start\n", procid); 
+{
+  //if (debug) printf("Task %d init_thread_pulp() start\n", procid);
 
   tp->part_counts = (double*)malloc(pulp->num_parts*sizeof(double));
   tp->part_weights = (double*)malloc(pulp->num_parts*sizeof(double));
   tp->part_edge_weights = (double*)malloc(pulp->num_parts*sizeof(double));
   tp->part_cut_weights = (double*)malloc(pulp->num_parts*sizeof(double));
- 
+
   //if (debug) printf("Task %d init_thread_pulp() success\n", procid);
 }
 
 void clear_thread_pulp(thread_pulp_t* tp)
 {
-  //if (debug) printf("Task %d clear_thread_pulp() start\n", procid); 
+  //if (debug) printf("Task %d clear_thread_pulp() start\n", procid);
 
   free(tp->part_counts);
   free(tp->part_weights);
@@ -80,13 +80,27 @@ void clear_thread_pulp(thread_pulp_t* tp)
 
 void init_pulp_data(dist_graph_t* g, pulp_data_t* pulp, int32_t num_parts)
 {
-  if (debug) printf("Task %d init_pulp_data() start\n", procid); 
+  if (debug) printf("Task %d init_pulp_data() start\n", procid);
 
   pulp->num_parts = num_parts;
-  if (g->edge_weights == NULL && g->vertex_weights == NULL)
-    pulp->avg_size = (double)g->n / (double)pulp->num_parts;
-  else
-    pulp->avg_size = (double)g->vertex_weights_sum / (double)pulp->num_parts;
+  if (g->vertex_weights == NULL)
+  /* TODO: Why does this bother with edge_weights? What if the graph is
+   * edge-weighted but not vertex-weighted? */
+  if (g->edge_weights == NULL && g->vertex_weights == NULL) {
+    pulp->avg_size = (double*) malloc(sizeof(double));
+    pulp->avg_size[0] = (double)g->n / (double)pulp->num_parts;
+  }
+  else {
+    /* FIXME: possibly a bad hack: lots of code will just use avg_size[0] in a
+     * lot of places. */
+    pulp->avg_size = (double*) calloc(g->weights_per_vertex, sizeof(double));
+    for (uint32_t i = 0; i <= g->weights_per_vertex; ++i) {
+      pulp->avg_size[i] = (double)g->vertex_weights_sum[i] / (double)pulp->num_parts;
+    }
+  }
+  if (pulp->avg_size[0] < 0) {
+    printf("PULP Data Init %d\n", g->vertex_weights_sum[0]);
+  }
   pulp->avg_edge_size = (double)g->m*2 / (double)pulp->num_parts;
   pulp->avg_cut_size = 0.0;
   pulp->max_v = 0.0;
@@ -105,9 +119,9 @@ void init_pulp_data(dist_graph_t* g, pulp_data_t* pulp, int32_t num_parts)
   pulp->part_size_changes = (int64_t*)malloc(pulp->num_parts*sizeof(int64_t));
   pulp->part_edge_size_changes = (int64_t*)malloc(pulp->num_parts*sizeof(int64_t));
   pulp->part_cut_size_changes = (int64_t*)malloc(pulp->num_parts*sizeof(int64_t));
-  if (pulp->local_parts == NULL || 
+  if (pulp->local_parts == NULL ||
       pulp->part_sizes == NULL || pulp->part_edge_sizes == NULL ||
-      pulp->part_cut_sizes == NULL || 
+      pulp->part_cut_sizes == NULL ||
       pulp->part_size_changes == NULL || pulp->part_edge_size_changes == NULL ||
       pulp->part_cut_size_changes == NULL)
     throw_err("init_pulp_data(), unable to allocate resources", procid);
@@ -127,7 +141,7 @@ void init_pulp_data(dist_graph_t* g, pulp_data_t* pulp, int32_t num_parts)
     pulp->part_edge_size_changes[p] = 0;
   for (int32_t p = 0; p < pulp->num_parts; ++p)
     pulp->part_cut_size_changes[p] = 0;
-  
+
   if (debug) printf("Task %d init_pulp_data() success\n", procid);
 }
 
@@ -166,7 +180,7 @@ void update_pulp_data(dist_graph_t* g, pulp_data_t* pulp)
   }
 
 
-  MPI_Allreduce(MPI_IN_PLACE, pulp->part_sizes, pulp->num_parts, 
+  MPI_Allreduce(MPI_IN_PLACE, pulp->part_sizes, pulp->num_parts,
     MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
   MPI_Allreduce(MPI_IN_PLACE, pulp->part_edge_sizes, pulp->num_parts,
     MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
@@ -183,8 +197,8 @@ void update_pulp_data(dist_graph_t* g, pulp_data_t* pulp)
   pulp->max_cut = 0;
   for (int32_t p = 0; p < pulp->num_parts; ++p)
   {
-    if ((double)pulp->part_sizes[p] / pulp->avg_size > pulp->max_v)
-      pulp->max_v = (double)pulp->part_sizes[p] / pulp->avg_size;        
+    if ((double)pulp->part_sizes[p] / pulp->avg_size[0] > pulp->max_v)
+      pulp->max_v = (double)pulp->part_sizes[p] / pulp->avg_size[0];
     if ((double)pulp->part_edge_sizes[p] / pulp->avg_edge_size > pulp->max_e)
       pulp->max_e = (double)pulp->part_edge_sizes[p] / pulp->avg_edge_size;
     if ((double)pulp->part_cut_sizes[p] / pulp->avg_cut_size > pulp->max_c)
@@ -214,9 +228,9 @@ void update_pulp_data_weighted(dist_graph_t* g, pulp_data_t* pulp)
   {
     uint64_t vert_index = i;
     int32_t part = pulp->local_parts[vert_index];
-    if (has_vwgts) 
+    if (has_vwgts)
       pulp->part_sizes[part] += g->vertex_weights[vert_index];
-    else 
+    else
       ++pulp->part_sizes[part];
 
     uint64_t out_degree = out_degree(g, vert_index);
@@ -244,7 +258,7 @@ void update_pulp_data_weighted(dist_graph_t* g, pulp_data_t* pulp)
   }
 
 
-  MPI_Allreduce(MPI_IN_PLACE, pulp->part_sizes, pulp->num_parts, 
+  MPI_Allreduce(MPI_IN_PLACE, pulp->part_sizes, pulp->num_parts,
     MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
   MPI_Allreduce(MPI_IN_PLACE, pulp->part_edge_sizes, pulp->num_parts,
     MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
@@ -261,8 +275,8 @@ void update_pulp_data_weighted(dist_graph_t* g, pulp_data_t* pulp)
   pulp->max_cut = 0;
   for (int32_t p = 0; p < pulp->num_parts; ++p)
   {
-    if ((double)pulp->part_sizes[p] / pulp->avg_size > pulp->max_v)
-      pulp->max_v = (double)pulp->part_sizes[p] / pulp->avg_size;        
+    if ((double)pulp->part_sizes[p] / pulp->avg_size[0] > pulp->max_v)
+      pulp->max_v = (double)pulp->part_sizes[p] / pulp->avg_size[0];
     if ((double)pulp->part_edge_sizes[p] / pulp->avg_edge_size > pulp->max_e)
       pulp->max_e = (double)pulp->part_edge_sizes[p] / pulp->avg_edge_size;
     if ((double)pulp->part_cut_sizes[p] / pulp->avg_cut_size > pulp->max_c)
@@ -277,7 +291,7 @@ void update_pulp_data_weighted(dist_graph_t* g, pulp_data_t* pulp)
 
 void clear_pulp_data(pulp_data_t* pulp)
 {
-  if (debug) printf("Task %d clear_pulp_data() start\n", procid); 
+  if (debug) printf("Task %d clear_pulp_data() start\n", procid);
 
   free(pulp->local_parts);
   free(pulp->part_sizes);
@@ -287,5 +301,5 @@ void clear_pulp_data(pulp_data_t* pulp)
   free(pulp->part_edge_size_changes);
   free(pulp->part_cut_size_changes);
 
-  if (debug) printf("Task %d clear_pulp_data() success\n", procid); 
+  if (debug) printf("Task %d clear_pulp_data() success\n", procid);
 }

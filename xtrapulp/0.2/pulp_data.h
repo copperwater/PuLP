@@ -50,7 +50,7 @@
 
 struct pulp_data_t {
 
-  double avg_size;
+  double* avg_size; // one per vertex weight
   double avg_edge_size;
   double avg_cut_size;
   double max_v;

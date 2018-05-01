@@ -62,7 +62,7 @@ extern int seed;
 extern bool verbose, debug, verify;
 
 void pulp_init_rand(
-  dist_graph_t* g, mpi_data_t* comm, queue_data_t* q, pulp_data_t* pulp) 
+  dist_graph_t* g, mpi_data_t* comm, queue_data_t* q, pulp_data_t* pulp)
 {
   if (debug) { printf("Task %d pulp_rand_init() start\n", procid); }
 
@@ -70,7 +70,7 @@ void pulp_init_rand(
   for (int32_t i = 0; i < nprocs; ++i)
     comm->sendcounts_temp[i] = 0;
 
-#pragma omp parallel 
+#pragma omp parallel
 {
   thread_queue_t tq;
   thread_comm_t tc;
@@ -104,7 +104,7 @@ void pulp_init_rand(
 
 #pragma omp single
 {
-  init_sendbuf_vid_data(comm);    
+  init_sendbuf_vid_data(comm);
 }
 
 #pragma omp for schedule(guided) nowait
@@ -141,7 +141,7 @@ void pulp_init_rand(
 }
 
 void pulp_init_block(
-  dist_graph_t* g, mpi_data_t* comm, queue_data_t* q, pulp_data_t* pulp) 
+  dist_graph_t* g, mpi_data_t* comm, queue_data_t* q, pulp_data_t* pulp)
 {
   if (debug) { printf("Task %d pulp_block_init() start\n", procid); }
 
@@ -151,7 +151,7 @@ void pulp_init_block(
 
   uint64_t num_per_part = g->n / (uint64_t)pulp->num_parts + 1;
 
-#pragma omp parallel 
+#pragma omp parallel
 {
   thread_queue_t tq;
   thread_comm_t tc;
@@ -171,7 +171,7 @@ void pulp_init_block(
   for (uint64_t i = g->n_local; i < g->n_total; ++i)
     pulp->local_parts[i] = -1;
 
-#pragma omp for schedule(guided)  nowait 
+#pragma omp for schedule(guided)  nowait
   for (uint64_t i = 0; i < g->n_local; ++i)
     update_sendcounts_thread(g, &tc, i);
 
@@ -187,7 +187,7 @@ void pulp_init_block(
 
 #pragma omp single
 {
-  init_sendbuf_vid_data(comm);    
+  init_sendbuf_vid_data(comm);
 }
 
 #pragma omp for schedule(guided) nowait
@@ -236,14 +236,14 @@ void pulp_init_bfs_pull(
 
   uint64_t* roots = (uint64_t*)malloc(pulp->num_parts*sizeof(uint64_t));
   if (procid == 0)
-  {    
+  {
     xs1024star_t xs;
     xs1024star_seed((uint64_t)seed, &xs);
-    
+
     for (int32_t i = 0; i < pulp->num_parts; ++i)
       roots[i] = xs1024star_next(&xs) % g->n;
 
-    quicksort_inc(roots, 0, (int64_t)pulp->num_parts-1);   
+    quicksort_inc(roots, 0, (int64_t)pulp->num_parts-1);
 
     for (int32_t i = 1; i < pulp->num_parts; ++i)
       if (roots[i] <= roots[i-1])
@@ -314,7 +314,7 @@ void pulp_init_bfs_pull(
         add_vid_to_send(&tq, q, vert_index);
         add_vid_to_queue(&tq, q, vert_index);
       }
-    }  
+    }
 
     empty_send(&tq, q);
     empty_queue(&tq, q);
@@ -370,10 +370,10 @@ void pulp_init_bfs_pull(
     }
 
 #pragma omp single
-{   
+{
     clear_recvbuf_vid_data(comm);
 
-    if (debug) printf("Task %d send_size %lu global_size %li\n", 
+    if (debug) printf("Task %d send_size %lu global_size %li\n",
       procid, temp_send_size, comm->global_queue_size);
 }
 
@@ -387,7 +387,7 @@ void pulp_init_bfs_pull(
   {
     if (pulp->local_parts[i] < 0)
     {
-      pulp->local_parts[i] = 
+      pulp->local_parts[i] =
         (int32_t)(xs1024star_next(&xs) % (uint64_t)pulp->num_parts);
       add_vid_to_send(&tq, q, i);
       add_vid_to_queue(&tq, q, i);
@@ -420,7 +420,7 @@ void pulp_init_bfs_pull(
 
 #pragma omp single
 {
-  init_sendbuf_vid_data(comm);    
+  init_sendbuf_vid_data(comm);
 }
 
 #pragma omp for schedule(guided) nowait
@@ -453,7 +453,7 @@ void pulp_init_bfs_pull(
 
   clear_thread_queue(&tq);
   clear_thread_comm(&tc);
-} // end parallel 
+} // end parallel
 
   if (debug) printf("Task %d pulp_init_bfs() success, not initialized %lu\n", procid, not_initialized);
 
@@ -478,14 +478,14 @@ void pulp_init_bfs_max(
 
   uint64_t* roots = (uint64_t*)malloc(pulp->num_parts*sizeof(uint64_t));
   if (procid == 0)
-  {    
+  {
     xs1024star_t xs;
     xs1024star_seed((uint64_t)seed, &xs);
-    
+
     for (int32_t i = 0; i < pulp->num_parts; ++i)
       roots[i] = (uint64_t)(xs1024star_next(&xs) % g->n);
 
-    quicksort_inc(roots, 0, (int64_t)pulp->num_parts-1);   
+    quicksort_inc(roots, 0, (int64_t)pulp->num_parts-1);
 
     for (int32_t i = 1; i < pulp->num_parts; ++i)
       if (roots[i] <= roots[i-1])
@@ -545,7 +545,7 @@ void pulp_init_bfs_max(
       {
         uint64_t out_index = outs[j];
         int32_t part_out = pulp->local_parts[out_index];
-        if (part_out >= 0 && 
+        if (part_out >= 0 &&
             pulp->part_sizes[part_out] + pulp->part_size_changes[part_out] < max_part_size)
         {
           pulp->local_parts[vert_index] = part_out;
@@ -562,7 +562,7 @@ void pulp_init_bfs_max(
     #pragma omp atomic
         ++pulp->part_size_changes[new_part];
       }
-    }  
+    }
 
     empty_send(&tq, q);
     empty_queue(&tq, q);
@@ -618,23 +618,23 @@ void pulp_init_bfs_max(
     }
 
 #pragma omp single
-{   
+{
     clear_recvbuf_vid_data(comm);
 
-    MPI_Allreduce(MPI_IN_PLACE, pulp->part_size_changes, pulp->num_parts, 
+    MPI_Allreduce(MPI_IN_PLACE, pulp->part_size_changes, pulp->num_parts,
       MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
     for (int32_t p = 0; p < pulp->num_parts; ++p)
     {
       pulp->part_sizes[p] += pulp->part_size_changes[p];
       pulp->part_size_changes[p] = 0;
     }
-   
-    if (debug) printf("Task %d send_size %lu global_size %lu\n", 
+
+    if (debug) printf("Task %d send_size %lu global_size %lu\n",
       procid, temp_send_size, comm->global_queue_size);
 }
 
   } // end while
-  
+
   xs1024star_t xs;
   xs1024star_seed((uint64_t)seed + omp_get_thread_num(), &xs);
 
@@ -643,7 +643,7 @@ void pulp_init_bfs_max(
   {
     if (pulp->local_parts[i] < 0)
     {
-      pulp->local_parts[i] = 
+      pulp->local_parts[i] =
         (int32_t)(xs1024star_next(&xs) % (uint64_t)pulp->num_parts);
       add_vid_to_send(&tq, q, i);
       add_vid_to_queue(&tq, q, i);
@@ -676,7 +676,7 @@ void pulp_init_bfs_max(
 
 #pragma omp single
 {
-  init_sendbuf_vid_data(comm);    
+  init_sendbuf_vid_data(comm);
 }
 
 #pragma omp for schedule(guided) nowait
@@ -709,7 +709,7 @@ void pulp_init_bfs_max(
 
   clear_thread_queue(&tq);
   clear_thread_comm(&tc);
-} // end parallel 
+} // end parallel
 
   if (debug) printf("Task %d pulp_init_bfs() success, not initialized %lu\n", procid, not_initialized);
 
@@ -721,9 +721,9 @@ void pulp_init_bfs_max(
 
 #define MIN_SIZE 0.25
 
-void pulp_init_label_prop_weighted(dist_graph_t* g, 
+void pulp_init_label_prop_weighted(dist_graph_t* g,
   mpi_data_t* comm, queue_data_t* q, pulp_data_t* pulp,
-  uint64_t lp_num_iter) 
+  uint64_t lp_num_iter)
 {
   if (debug) { printf("Task %d pulp_init_label_prop_weighted() start\n", procid); }
 
@@ -734,10 +734,10 @@ void pulp_init_label_prop_weighted(dist_graph_t* g,
   for (int32_t i = 0; i < nprocs; ++i)
     comm->sendcounts_temp[i] = 0;
 
-  double min_size = pulp->avg_size * MIN_SIZE;
+  double min_size = pulp->avg_size[0] * MIN_SIZE;
   double multiplier = (double) nprocs;
 
-#pragma omp parallel 
+#pragma omp parallel
 {
   thread_queue_t tq;
   thread_comm_t tc;
@@ -751,7 +751,7 @@ void pulp_init_label_prop_weighted(dist_graph_t* g,
 
 #pragma omp for
   for (uint64_t i = 0; i < g->n_local; ++i)
-    pulp->local_parts[i] = 
+    pulp->local_parts[i] =
       (int32_t)(xs1024star_next(&xs) % (uint64_t)pulp->num_parts);
 
 #pragma omp for
@@ -774,7 +774,7 @@ void pulp_init_label_prop_weighted(dist_graph_t* g,
 
 #pragma omp single
 {
-  init_sendbuf_vid_data(comm);    
+  init_sendbuf_vid_data(comm);
 }
 
 #pragma omp for schedule(guided) nowait
@@ -843,15 +843,15 @@ for (uint64_t cur_iter = 0; cur_iter < lp_num_iter; ++cur_iter)
         num_max = 0;
         tp.part_counts[num_max++] = (double)p;
       }
-    }      
+    }
 
     if (num_max > 1)
-      max_part = 
+      max_part =
         (int32_t)tp.part_counts[(xs1024star_next(&xs) % num_max)];
 
     if (max_part != part)
     {
-      int64_t new_size = (int64_t)pulp->avg_size;
+      int64_t new_size = (int64_t)pulp->avg_size[0];
 
       pulp->part_size_changes[part] - (int64_t)vert_weight > 0 ?
         new_size = pulp->part_sizes[part] + pulp->part_size_changes[part] - vert_weight :
@@ -868,7 +868,7 @@ for (uint64_t cur_iter = 0; cur_iter < lp_num_iter; ++cur_iter)
         add_vid_to_send(&tq, q, vert_index);
       }
     }
-  }  
+  }
 
   empty_send(&tq, q);
 #pragma omp barrier
@@ -894,7 +894,7 @@ for (uint64_t cur_iter = 0; cur_iter < lp_num_iter; ++cur_iter)
 
 #pragma omp single
 {
-  init_sendbuf_vid_data(comm);    
+  init_sendbuf_vid_data(comm);
 }
 
 #pragma omp for schedule(guided) nowait
@@ -925,7 +925,7 @@ for (uint64_t cur_iter = 0; cur_iter < lp_num_iter; ++cur_iter)
 {
   clear_recvbuf_vid_data(comm);
 
-  MPI_Allreduce(MPI_IN_PLACE, pulp->part_size_changes, pulp->num_parts, 
+  MPI_Allreduce(MPI_IN_PLACE, pulp->part_size_changes, pulp->num_parts,
   MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
   for (int32_t p = 0; p < pulp->num_parts; ++p)
   {
@@ -949,9 +949,9 @@ for (uint64_t cur_iter = 0; cur_iter < lp_num_iter; ++cur_iter)
 
 
 
-void pulp_init_label_prop(dist_graph_t* g, 
+void pulp_init_label_prop(dist_graph_t* g,
   mpi_data_t* comm, queue_data_t* q, pulp_data_t* pulp,
-  uint64_t lp_num_iter) 
+  uint64_t lp_num_iter)
 {
   if (debug) { printf("Task %d pulp_init_label_prop() start\n", procid); }
 
@@ -959,10 +959,10 @@ void pulp_init_label_prop(dist_graph_t* g,
   for (int32_t i = 0; i < nprocs; ++i)
     comm->sendcounts_temp[i] = 0;
 
-  double min_size = pulp->avg_size * MIN_SIZE;
+  double min_size = pulp->avg_size[0] * MIN_SIZE;
   double multiplier = (double) nprocs;
 
-#pragma omp parallel 
+#pragma omp parallel
 {
   thread_queue_t tq;
   thread_comm_t tc;
@@ -976,7 +976,7 @@ void pulp_init_label_prop(dist_graph_t* g,
 
 #pragma omp for
   for (uint64_t i = 0; i < g->n_local; ++i)
-    pulp->local_parts[i] = 
+    pulp->local_parts[i] =
       (int32_t)(xs1024star_next(&xs) % (uint64_t)pulp->num_parts);
 
 #pragma omp for
@@ -999,7 +999,7 @@ void pulp_init_label_prop(dist_graph_t* g,
 
 #pragma omp single
 {
-  init_sendbuf_vid_data(comm);    
+  init_sendbuf_vid_data(comm);
 }
 
 #pragma omp for schedule(guided) nowait
@@ -1063,10 +1063,10 @@ for (uint64_t cur_iter = 0; cur_iter < lp_num_iter; ++cur_iter)
         num_max = 0;
         tp.part_counts[num_max++] = (double)p;
       }
-    }      
+    }
 
     if (num_max > 1)
-      max_part = 
+      max_part =
         (int32_t)tp.part_counts[(xs1024star_next(&xs) % num_max)];
 
     if (max_part != part)
@@ -1088,7 +1088,7 @@ for (uint64_t cur_iter = 0; cur_iter < lp_num_iter; ++cur_iter)
         add_vid_to_send(&tq, q, vert_index);
       }
     }
-  }  
+  }
 
   empty_send(&tq, q);
 #pragma omp barrier
@@ -1114,7 +1114,7 @@ for (uint64_t cur_iter = 0; cur_iter < lp_num_iter; ++cur_iter)
 
 #pragma omp single
 {
-  init_sendbuf_vid_data(comm);    
+  init_sendbuf_vid_data(comm);
 }
 
 #pragma omp for schedule(guided) nowait
@@ -1145,7 +1145,7 @@ for (uint64_t cur_iter = 0; cur_iter < lp_num_iter; ++cur_iter)
 {
   clear_recvbuf_vid_data(comm);
 
-  MPI_Allreduce(MPI_IN_PLACE, pulp->part_size_changes, pulp->num_parts, 
+  MPI_Allreduce(MPI_IN_PLACE, pulp->part_size_changes, pulp->num_parts,
   MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
   for (int32_t p = 0; p < pulp->num_parts; ++p)
   {
