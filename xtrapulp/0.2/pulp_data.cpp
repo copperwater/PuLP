@@ -83,23 +83,22 @@ void init_pulp_data(dist_graph_t* g, pulp_data_t* pulp, int32_t num_parts)
   if (debug) printf("Task %d init_pulp_data() start\n", procid);
 
   pulp->num_parts = num_parts;
-  if (g->vertex_weights == NULL)
   /* TODO: Why does this bother with edge_weights? What if the graph is
    * edge-weighted but not vertex-weighted? */
   if (g->edge_weights == NULL && g->vertex_weights == NULL) {
-    pulp->avg_size = (double*) malloc(sizeof(double));
+    pulp->avg_size = (double*) calloc(1, sizeof(double));
     pulp->avg_size[0] = (double)g->n / (double)pulp->num_parts;
   }
   else {
     /* FIXME: possibly a bad hack: lots of code will just use avg_size[0] in a
      * lot of places. */
     pulp->avg_size = (double*) calloc(g->weights_per_vertex, sizeof(double));
-    for (uint32_t i = 0; i <= g->weights_per_vertex; ++i) {
+    for (uint32_t i = 0; i < g->weights_per_vertex; ++i) {
       pulp->avg_size[i] = (double)g->vertex_weights_sum[i] / (double)pulp->num_parts;
     }
   }
   if (pulp->avg_size[0] < 0) {
-    printf("PULP Data Init %d\n", g->vertex_weights_sum[0]);
+    printf("PULP Data Init %ld\n", g->vertex_weights_sum[0]);
   }
   pulp->avg_edge_size = (double)g->m*2 / (double)pulp->num_parts;
   pulp->avg_cut_size = 0.0;

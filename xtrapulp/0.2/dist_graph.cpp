@@ -76,6 +76,7 @@ int create_graph(graph_gen_data_t *ggi, dist_graph_t *g)
   g->m_local = ggi->m_local_edges;
   g->vertex_weights = ggi->vertex_weights;
   g->weights_per_vertex = ggi->weights_per_vertex;
+  g->vertex_weights_sum = NULL;
   g->edge_weights = NULL;
   g->map = (struct fast_map*)malloc(sizeof(struct fast_map));
 
@@ -85,6 +86,18 @@ int create_graph(graph_gen_data_t *ggi, dist_graph_t *g)
   if (out_edges == NULL || out_degree_list == NULL || temp_counts == NULL)
     throw_err("create_graph(), unable to allocate graph edge storage", procid);
 
+  // populate g->vertex_weights_sum
+  if (g->vertex_weights != NULL) {
+    g->vertex_weights_sum = (int64_t*) calloc(g->weights_per_vertex, sizeof(int64_t));
+    for (uint64_t i = 0; i < g->weights_per_vertex; ++i) {
+        for (uint64_t j = 0; j < g->n_local; ++j) {
+            uint64_t index = (j * g->weights_per_vertex) + i;
+            g->vertex_weights_sum[i] += g->vertex_weights[index];
+        }
+    }
+    MPI_Allreduce(MPI_IN_PLACE, g->vertex_weights_sum, g->weights_per_vertex,
+                  MPI_UINT64_T, MPI_SUM, MPI_COMM_WORLD);
+  }
 #pragma omp parallel
 {
 #pragma omp for nowait
@@ -217,6 +230,7 @@ int create_graph(dist_graph_t* g,
   g->m = m_global;
   g->m_local = m_local;
   g->vertex_weights = NULL;
+  g->vertex_weights_sum = NULL;
   g->edge_weights = NULL;
   g->map = (struct fast_map*)malloc(sizeof(struct fast_map));
 
@@ -235,7 +249,6 @@ int create_graph(dist_graph_t* g,
     MPI_Allreduce(MPI_IN_PLACE, g->vertex_weights_sum, g->weights_per_vertex,
                   MPI_UINT64_T, MPI_SUM, MPI_COMM_WORLD);
   }
-  else g->vertex_weights = NULL;
   if (edge_weights != NULL) g->edge_weights = edge_weights;
   else g->edge_weights = NULL;
 

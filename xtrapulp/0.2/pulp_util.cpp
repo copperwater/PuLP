@@ -89,10 +89,10 @@ int part_eval(dist_graph_t* g, pulp_data_t* pulp)
         ++pulp->part_cut_sizes[part];
         ++pulp->cut_size;
       }
-    } 
+    }
   }
 
-  MPI_Allreduce(MPI_IN_PLACE, pulp->part_sizes, pulp->num_parts, 
+  MPI_Allreduce(MPI_IN_PLACE, pulp->part_sizes, pulp->num_parts,
     MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
   MPI_Allreduce(MPI_IN_PLACE, pulp->part_edge_sizes, pulp->num_parts,
     MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
@@ -109,7 +109,7 @@ int part_eval(dist_graph_t* g, pulp_data_t* pulp)
   MPI_Allreduce(MPI_IN_PLACE, &global_ghost, 1,
     MPI_UINT64_T, MPI_SUM, MPI_COMM_WORLD);
 
-  double ghost_balance = 
+  double ghost_balance =
     (double)max_ghost / ((double)global_ghost / (double)pulp->num_parts);
 
   int64_t max_v_size = 0;
@@ -145,7 +145,7 @@ int part_eval(dist_graph_t* g, pulp_data_t* pulp)
   if (procid == 0)
   {
     printf("---------------------------------------------------------\n");
-    printf("EdgeCut: %li, MaxPartCut: %li\nVertexBalance: %2.3lf (%d, %li), EdgeBalance: %2.3lf (%d, %li)\nCutBalance: %2.3lf (%d, %li), GhostBalance: %2.3lf (%li)\n", 
+    printf("EdgeCut: %li, MaxPartCut: %li\nVertexBalance: %2.3lf (%d, %li), EdgeBalance: %2.3lf (%d, %li)\nCutBalance: %2.3lf (%d, %li), GhostBalance: %2.3lf (%li)\n",
       pulp->cut_size, pulp->max_cut,
       pulp->max_v, max_v_part, max_v_size,
       pulp->max_e, max_e_part, max_e_size,
@@ -159,14 +159,14 @@ int part_eval(dist_graph_t* g, pulp_data_t* pulp)
   }
 
   return 0;
-} 
+}
 
 int part_eval(dist_graph_t* g, int32_t* parts, int32_t num_parts)
 {
   pulp_data_t pulp;
   init_pulp_data(g, &pulp, num_parts);
   memcpy(parts, pulp.local_parts, g->n_local*sizeof(int32_t));
-  
+
   for (int32_t i = 0; i < pulp.num_parts; ++i)
   {
     pulp.part_sizes[i] = 0;
@@ -194,10 +194,10 @@ int part_eval(dist_graph_t* g, int32_t* parts, int32_t num_parts)
         ++pulp.part_cut_sizes[part];
         ++pulp.cut_size;
       }
-    } 
+    }
   }
 
-  MPI_Allreduce(MPI_IN_PLACE, pulp.part_sizes, pulp.num_parts, 
+  MPI_Allreduce(MPI_IN_PLACE, pulp.part_sizes, pulp.num_parts,
     MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
   MPI_Allreduce(MPI_IN_PLACE, pulp.part_edge_sizes, pulp.num_parts,
     MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
@@ -214,7 +214,7 @@ int part_eval(dist_graph_t* g, int32_t* parts, int32_t num_parts)
   MPI_Allreduce(MPI_IN_PLACE, &global_ghost, 1,
     MPI_UINT64_T, MPI_SUM, MPI_COMM_WORLD);
 
-  double ghost_balance = 
+  double ghost_balance =
     (double)max_ghost / ((double)global_ghost / (double)pulp.num_parts);
 
   int64_t max_v_size = 0;
@@ -249,8 +249,8 @@ int part_eval(dist_graph_t* g, int32_t* parts, int32_t num_parts)
 
   if (procid == 0)
   {
-    printf("EVAL ec: %li, vb: %2.3lf (%d, %li), eb: %2.3lf (%d, %li), cb: %2.3lf (%d, %li), gb: %2.3lf (%li)\n", 
-      pulp.cut_size, 
+    printf("EVAL ec: %li, vb: %2.3lf (%d, %li), eb: %2.3lf (%d, %li), cb: %2.3lf (%d, %li), gb: %2.3lf (%li)\n",
+      pulp.cut_size,
       pulp.max_v, max_v_part, max_v_size,
       pulp.max_e, max_e_part, max_e_size,
       pulp.max_c, max_c_part, max_c_size,
@@ -264,7 +264,7 @@ int part_eval(dist_graph_t* g, int32_t* parts, int32_t num_parts)
   clear_pulp_data(&pulp);
 
   return 0;
-} 
+}
 
 
 int part_eval_weighted(dist_graph_t* g, pulp_data_t* pulp)
@@ -314,7 +314,7 @@ int part_eval_weighted(dist_graph_t* g, pulp_data_t* pulp)
     }
   }
 
-  MPI_Allreduce(MPI_IN_PLACE, pulp->part_sizes, pulp->num_parts, 
+  MPI_Allreduce(MPI_IN_PLACE, pulp->part_sizes, pulp->num_parts,
     MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
   MPI_Allreduce(MPI_IN_PLACE, pulp->part_edge_sizes, pulp->num_parts,
     MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
@@ -345,7 +345,7 @@ int part_eval_weighted(dist_graph_t* g, pulp_data_t* pulp)
   MPI_Allreduce(MPI_IN_PLACE, &global_ghost, 1,
     MPI_UINT64_T, MPI_SUM, MPI_COMM_WORLD);
 
-  double ghost_balance = 
+  double ghost_balance =
     (double)max_ghost / ((double)global_ghost / (double)pulp->num_parts);
 
 
@@ -381,8 +381,8 @@ int part_eval_weighted(dist_graph_t* g, pulp_data_t* pulp)
 
   if (procid == 0)
   {
-    printf("EVAL ec: %li, vb: %2.3lf (%d, %li), eb: %2.3lf (%d, %li), cb: %2.3lf (%d, %li), gb: %2.3lf (%li)\n", 
-      pulp->cut_size, 
+    printf("EVAL ec: %li, vb: %2.3lf (%d, %li), eb: %2.3lf (%d, %li), cb: %2.3lf (%d, %li), gb: %2.3lf (%li)\n",
+      pulp->cut_size,
       pulp->max_v, max_v_part, max_v_size,
       pulp->max_e, max_e_part, max_e_size,
       pulp->max_c, max_c_part, max_c_size,
@@ -394,23 +394,23 @@ int part_eval_weighted(dist_graph_t* g, pulp_data_t* pulp)
   }
 
   return 0;
-} 
+}
 
 int output_parts(const char* filename, dist_graph_t* g, int32_t* parts)
 {
   output_parts(filename, g, parts, false);
- 
+
   return 0;
 }
 
 
-int output_parts(const char* filename, dist_graph_t* g, 
+int output_parts(const char* filename, dist_graph_t* g,
                  int32_t* parts, bool offset_vids)
 {
-  if (verbose) printf("Task %d writing parts to %s\n", procid, filename); 
+  if (verbose) printf("Task %d writing parts to %s\n", procid, filename);
 
   int32_t* global_parts = (int32_t*)malloc(g->n*sizeof(int32_t));
-  
+
 #pragma omp parallel for
   for (uint64_t i = 0; i < g->n; ++i)
     global_parts[i] = -1;
@@ -425,8 +425,9 @@ int output_parts(const char* filename, dist_graph_t* g,
       if (global_id < g->n)
         global_parts[global_id] = parts[i];
     }
-    else
+    else {
       global_parts[g->local_unmap[i]] = parts[i];
+    }
 
   if (procid == 0)
     MPI_Reduce(MPI_IN_PLACE, global_parts, (int32_t)g->n,
@@ -444,7 +445,7 @@ int output_parts(const char* filename, dist_graph_t* g,
           printf("Part error: %lu not assigned\n", i);
           global_parts[i] = 0;
         }
-        
+
     std::ofstream outfile;
     outfile.open(filename);
 
@@ -456,23 +457,23 @@ int output_parts(const char* filename, dist_graph_t* g,
 
   free(global_parts);
 
-  if (verbose) printf("Task %d done writing parts\n", procid); 
+  if (verbose) printf("Task %d done writing parts\n", procid);
 
   return 0;
 }
 
-int read_parts(const char* filename, dist_graph_t* g, 
+int read_parts(const char* filename, dist_graph_t* g,
                pulp_data_t* pulp, bool offset_vids)
 {
-  if (verbose) printf("Task %d reading in parts from %s\n", procid, filename); 
+  if (verbose) printf("Task %d reading in parts from %s\n", procid, filename);
 
   int32_t* global_parts = (int32_t*)malloc(g->n*sizeof(int32_t));
 
 #pragma omp parallel for
   for (uint64_t i = 0; i < g->n; ++i)
     global_parts[i] = -1;
-#pragma omp parallel for  
-  for (uint64_t i = 0; i < g->n_total; ++i)        
+#pragma omp parallel for
+  for (uint64_t i = 0; i < g->n_total; ++i)
     pulp->local_parts[i] = -1;
 
 
@@ -498,7 +499,7 @@ int read_parts(const char* filename, dist_graph_t* g,
   MPI_Bcast(global_parts, (int32_t)g->n, MPI_INT32_T, 0, MPI_COMM_WORLD);
 
   if (offset_vids)
-  {   
+  {
 #pragma omp parallel for
     for (uint64_t i = 0; i < g->n_local; ++i)
     {
@@ -518,7 +519,7 @@ int read_parts(const char* filename, dist_graph_t* g,
         pulp->local_parts[i + g->n_local] = global_parts[global_id];
     }
     if (debug)
-      for (uint64_t i = 0; i < g->n_total; ++i)        
+      for (uint64_t i = 0; i < g->n_total; ++i)
         if (pulp->local_parts[i] == -1)
         {
           printf("Part error: %lu not assigned\n", i);
@@ -537,7 +538,7 @@ int read_parts(const char* filename, dist_graph_t* g,
 
   free(global_parts);
 
-  if (verbose) printf("Task %d done reading in parts\n", procid); 
+  if (verbose) printf("Task %d done reading in parts\n", procid);
 
   return 0;
 }
