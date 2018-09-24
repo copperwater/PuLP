@@ -545,138 +545,148 @@ int exchange_edges(graph_gen_data_t *ggi, mpi_data_t* comm)
 }
 
 /* Scale the unscaled vertex weights from ggi and place them in vertex_weights. */
-void scale_weights(graph_gen_data_t* ggi, int scaling_method) {
-
+void scale_weights(graph_gen_data_t* ggi, int scaling_method, int norming_method)
+{
     // for shorthand
     const uint64_t wpv = ggi->weights_per_vertex;
-    /* Note: This used to be uint64_t, but was changed to match dist_graph_t vertex weights. */
-    ggi->vertex_weights = (int32_t*) calloc(wpv * ggi->n_local, sizeof(uint64_t));
 
     /* Scaling method values:
      * -1 = No scaling.
      *  0 = scale by reducing the weight of
      *  1 = unimplemented.
      */
-    if (scaling_method < 0) {
-        for (uint64_t i = 0; i < wpv * ggi->n_local; i++) {
+    if(scaling_method > 0) {
+        throw_err("scale_weights, bad scaling method");
+    }
+    else if (scaling_method == 0) {
+        const double INT_EPSILON = 1e-5;
+
+        // Compute the sum of each ordered weight. Only do the sum for this
+        // process's vertices though, and then we will Allreduce it to get the
+        // global sums of each ordered weight.
+        // This step is analogous to the Zoltan aggregate_weights.
+        double* local_weight_sum = (double*) calloc(wpv + 1, sizeof(double));
+        double* global_weight_sum = (double*) calloc(wpv + 1, sizeof(double));
+
+        // The reason for the +1 in the array size is so that we don't have to
+        // call Allreduce twice; the last value is a sentinel for if there are
+        // any non-integer weights.
+        double* non_int_sentinel = local_weight_sum + wpv;
+        *non_int_sentinel = 0;
+
+        for (uint64_t j = 0; j < ggi->n_local; ++j) {
+            for (uint64_t i = 0; i < ggi->weights_per_vertex; ++i) {
+                double this_weight = ggi->unscaled_vweights[(j * wpv) + i];
+                local_weight_sum[i] += this_weight;
+                if (*non_int_sentinel == 0
+                    && fabs(floor(this_weight + 0.5) - this_weight) > INT_EPSILON) {
+                    *non_int_sentinel = 1;
+                }
+            }
+        }
+
+        // sum all local weight sums (plus sentinel) into the global buffer
+        MPI_Allreduce(local_weight_sum, global_weight_sum, wpv+1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+        // move the sentinel to global_weight_sum, as this represents the sum of
+        // all the local sentinels
+        non_int_sentinel = global_weight_sum + wpv;
+
+        /* next step: scale the nth weight on each vertex, using three main inputs:
+        * the nth global weight sum, the sentinel, and scaling_method. */
+        const double MAX_ALLOWABLE_SUM = 1e9;
+        /* Scale if any of the following are true:
+        * 1) non-integer weights exist
+        * 2) weights are too tiny
+        * 3) weights are too large
+        */
+        double scale = 1.0;
+
+        for (uint64_t i = 0; i < ggi->weights_per_vertex; ++i) {
+            if (*non_int_sentinel > 0 || global_weight_sum[i] < INT_EPSILON
+                || global_weight_sum[i] > MAX_ALLOWABLE_SUM) {
+                if (scaling_method == 0) {
+                    // not sure why this check exists...
+                    if (global_weight_sum[i] > 0) {
+                        scale = MAX_ALLOWABLE_SUM / global_weight_sum[i];
+                    }
+                }
+                else if (scaling_method == 1) {
+                    // TODO: this option is unimplemented!
+                }
+            }
+
+            for (uint64_t j = 0; j < ggi->n_local; ++j) {
+                const uint64_t index = (j * wpv) + i;
+                ggi->unscaled_vweights[index] = ceil(ggi->unscaled_vweights[index] * scale);
+            }
+        }
+
+        free(local_weight_sum);
+        free(global_weight_sum);
+    }
+    /* if scaling_method < 0, do nothing here */
+
+    /* If scaling has happened, "ggi->unscaled_vweights" now actually contains
+     * scaled vweights, but to avoid having to create more arrays we just use
+     * that. */
+
+    /* Now norm the weights, reducing them to a single number.
+     * TODO: do this in a way that doesn't necessarily reduce to a single
+     * number, but a smaller number that's more efficient than re-partitioning
+     * each time.
+     * Values for the norming_method argument:
+     *  0 or negative: do not norm
+     *  1: 1-norm (sum)
+     *  2: 2-norm (Euclidean)
+     *  >2: infinity-norm (max)
+     */
+    if (norming_method <= 0) {
+        /* Scaling but NO norming -> we allocate vertex_weights to be the same size
+         * as it is now, with wpv weights per vertex, copy them in as int32_t's,
+         * and be done.
+         */
+        ggi->vertex_weights = (int32_t*) calloc(wpv * ggi->n_local, sizeof(int32_t));
+        /* Note: This used to be uint64_t, but was changed to match dist_graph_t vertex weights. */
+        for (uint64_t i = 0; i < wpv * ggi->n_local; ++i) {
             ggi->vertex_weights[i] = (int32_t) ggi->unscaled_vweights[i];
         }
+
         free(ggi->unscaled_vweights);
         ggi->unscaled_vweights = NULL;
         return;
     }
-    else if(scaling_method > 0) {
-        throw_err("scale_weights, bad scaling method");
+    else {
+        ggi->vertex_weights = (int32_t*) calloc(ggi->n_local, sizeof(int32_t));
+        ggi->weights_per_vertex = 1;
     }
 
-    const double INT_EPSILON = 1e-5;
-
-    // Compute the sum of each ordered weight. Only do the sum for this process's vertices though,
-    // and then we will Allreduce it to get the global sums of each ordered weight.
-    // This step is analogous to the Zoltan aggregate_weights.
-    double* local_weight_sum = (double*) calloc(wpv + 1, sizeof(double)); //should be zeroed by default
-    double* global_weight_sum = (double*) calloc(wpv + 1, sizeof(double)); //should be zeroed by default
-
-    // The reason for the +1 in the array size is so that we don't have to call Allreduce twice;
-    // the last value is a sentinel for if there are any non-integer weights.
-    double* non_int_sentinel = local_weight_sum + wpv;
-    *non_int_sentinel = 0;
-
-    for (uint64_t j = 0; j < ggi->n_local; ++j) {
-        for (uint64_t i = 0; i < ggi->weights_per_vertex; ++i) {
-            double this_weight = ggi->unscaled_vweights[(j * wpv) + i];
-            local_weight_sum[i] += this_weight;
-            if (*non_int_sentinel == 0
-                && fabs(floor(this_weight + 0.5) - this_weight) > INT_EPSILON) {
-                *non_int_sentinel = 1;
-            }
-        }
-    }
-
-    // sum all local weight sums (plus sentinel) into the global buffer
-    MPI_Allreduce(local_weight_sum, global_weight_sum, wpv+1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-    // move the sentinel to global_weight_sum, as this represents the sum of all the local sentinels
-    non_int_sentinel = global_weight_sum + wpv;
-
-    /* next step: scale the nth weight on each vertex, using three main inputs:
-     * the nth global weight sum, the sentinel, and scaling_method. */
-    const double MAX_ALLOWABLE_SUM = 1e9;
-    /* Scale if any of the following are true:
-     * 1) non-integer weights exist
-     * 2) weights are too tiny
-     * 3) weights are too large
-     */
-    double scale = 1.0;
-
-    for (uint64_t i = 0; i < ggi->weights_per_vertex; ++i) {
-        if (*non_int_sentinel > 0 || global_weight_sum[i] < INT_EPSILON
-            || global_weight_sum[i] > MAX_ALLOWABLE_SUM) {
-            if (scaling_method == 0) {
-                // not sure why this check exists...
-                if (global_weight_sum[i] > 0) {
-                    scale = MAX_ALLOWABLE_SUM / global_weight_sum[i];
-                }
-            }
-            else if (scaling_method == 1) {
-                // TODO: this option is unimplemented!
-            }
-        }
-
-        for (uint64_t j = 0; j < ggi->n_local; ++j) {
-            const uint64_t index = (j * wpv) + i;
-            ggi->vertex_weights[index] = (int32_t) ceil(ggi->unscaled_vweights[index] * scale);
-        }
-    }
-    free(ggi->unscaled_vweights);
-    ggi->unscaled_vweights = NULL;
-
-    // for (uint64_t k = 0; k < ggi->n_local + wpv; ++k) {
-    //     printf("X %d %x\n", procid, ggi->vertex_weights[k]);
-    // }
-
-    /* next step: reduce all weights to a single number
-     * TODO: do this in a way that doesn't necessarily reduce to a single
-     * number, but a smaller number that's more efficient than re-partitioning
-     * each time */
-    int norm_method = 1;
-    /* norm method: 1 = 1-norm (sum), 2 = 2-norm (Euclidean), else = inf-norm (max) */
-    int32_t result = 0;
-    int32_t* normed_weights = (int32_t*) calloc(ggi->n_local, sizeof(int32_t));
+    double result = 0;
     for (uint64_t j = 0; j < ggi->n_local; ++j) {
         result = 0;
         for (uint64_t i = 0; i < wpv; ++i) {
             const uint64_t index = (j * wpv) + i;
-            if (norm_method == 0) {
-                ;
+            if (norming_method == 1) {
+                result += ggi->unscaled_vweights[index];
             }
-            else if (norm_method == 1) {
-                result += ggi->vertex_weights[index];
-            }
-            else if (norm_method == 2) {
+            else if (norming_method == 2) {
                 // Possible overflow here? Is this a concern?
                 // TODO: should this norm in particular be done when we're still dealing with doubles?
-                result += (ggi->vertex_weights[index] * ggi->vertex_weights[index]);
+                result += (ggi->unscaled_vweights[index] * ggi->unscaled_vweights[index]);
             }
             else {
-                if (ggi->vertex_weights[index] > result) {
-                    result = ggi->vertex_weights[index];
+                if (ggi->unscaled_vweights[index] > result) {
+                    result = ggi->unscaled_vweights[index];
                 }
             }
         }
-        if (norm_method == 2) {
-            result = (int32_t) sqrt(result);
+        if (norming_method == 2) {
+            result = sqrt(result);
         }
-        normed_weights[j] = result;
-    }
-    free(ggi->vertex_weights);
-    ggi->vertex_weights = normed_weights;
-    ggi->weights_per_vertex = 1;
-
-    for (uint64_t j=0; j<ggi->n_local; ++j) {
-        printf("%d %d\n", procid, ggi->vertex_weights[j]);
+        ggi->vertex_weights[j] = (int32_t) result;
     }
 
-    free(local_weight_sum);
-    free(global_weight_sum);
+    // for (uint64_t j=0; j<ggi->n_local; ++j) {
+    //     printf("%d %d\n", procid, ggi->vertex_weights[j]);
+    // }
 }

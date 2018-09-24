@@ -94,7 +94,9 @@ void print_usage_full(char** argv)
   printf("\t-s [seed]:\n");
   printf("\t\tSet seed integer [default: random int]\n");
   printf("\t-w [scaling-method]:\n");
-  printf("\t\tScale vertex weights by the given method [default: 0]\n");
+  printf("\t\tScale vertex weights by the given scaling method [default: 0]\n");
+  printf("\t-n [norming-method]:\n");
+  printf("\t\tReduce vertex weights into one number by the given norming method [default: 1]\n");
   exit(0);
 }
 
@@ -136,6 +138,7 @@ int main(int argc, char **argv)
   bool output_time = true;
   bool output_quality = false;
   int weight_scaling_method = -1;
+  int weight_norming_method = -1; // don't norm weights
 
   bool gen_rmat = false;
   bool gen_rand = false;
@@ -152,7 +155,7 @@ int main(int argc, char **argv)
   bool do_maxcut_balance = false;
 
   char c;
-  while ((c = getopt (argc, argv, "v:e:o:i:m:s:p:w:dlqtc")) != -1) {
+  while ((c = getopt (argc, argv, "v:e:o:i:m:s:p:w:n:dlqtc")) != -1) {
     switch (c) {
       case 'h':
         print_usage_full(argv);
@@ -214,6 +217,9 @@ int main(int argc, char **argv)
       case 'w':
         weight_scaling_method = strtol(optarg, NULL, 10);
         break;
+      case 'n':
+        weight_norming_method = strtol(optarg, NULL, 10);
+        break;
       default:
         throw_err("Input argument format error");
     }
@@ -255,7 +261,7 @@ int main(int argc, char **argv)
     strcat(graphname, input_filename);
     load_graph_edges_32(input_filename, &ggi, offset_vids);
     if (ggi.unscaled_vweights != NULL) {
-        scale_weights(&ggi, weight_scaling_method);
+        scale_weights(&ggi, weight_scaling_method, weight_norming_method);
     }
     if (procid == 0) printf("Reading Finished: %9.6lf (s)\n", omp_get_wtime() - elt);
   }

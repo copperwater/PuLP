@@ -59,6 +59,6 @@ int load_graph_edges_64(char *input_filename, graph_gen_data_t *ggi,
 
 int exchange_edges(graph_gen_data_t *ggi, mpi_data_t* comm);
 
-void scale_weights(graph_gen_data_t* ggi, int scaling_method);
+void scale_weights(graph_gen_data_t* ggi, int scaling_method, int norming_method);
 
 #endif
