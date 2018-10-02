@@ -304,7 +304,7 @@ int main(int argc, char **argv)
 
     if (output_quality)
     {
-      part_eval(&g, &pulp);
+      part_eval_weighted(&g, &pulp);
       //if (procid == 0)
       //  printf("&&& XtraPuLP, %s, %d, %2.3lf, %2.3lf, %li, %li\n",
       //   graphname, num_parts, pulp.max_v, pulp.max_e,

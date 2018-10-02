@@ -48,6 +48,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <math.h>
 #include <fstream>
 #include <cstring>
 #include <assert.h>
@@ -269,26 +270,58 @@ int part_eval(dist_graph_t* g, int32_t* parts, int32_t num_parts)
 
 int part_eval_weighted(dist_graph_t* g, pulp_data_t* pulp)
 {
-  bool has_vwgts = (g->vertex_weights != NULL);
+  bool has_vwgts = (g->original_vweights != NULL);
   bool has_ewgts = (g->edge_weights != NULL);
+  const uint64_t owpv = g->original_weights_per_vertex;
+
+  /* This array uses owpv as its first dimension to cut down on the number of
+   * MPI_Allreduce calls; we generally expect owpv to be small, whereas the
+   * number of parts could be small (in which case it's irrelevant) or quite
+   * large.
+   * The reason for using num_parts+2 is so we can later store the maximum and
+   * sum in the last slot. */
+#define WEIGHT_MAX_INDEX (pulp->num_parts)
+#define WEIGHT_SUM_INDEX (pulp->num_parts + 1)
+  double part_weighted_sizes[owpv][pulp->num_parts + 2];
 
   for (int32_t i = 0; i < pulp->num_parts; ++i)
   {
     pulp->part_sizes[i] = 0;
     pulp->part_edge_sizes[i] = 0;
     pulp->part_cut_sizes[i] = 0;
+    for (uint64_t j = 0; j < owpv; ++j)
+        part_weighted_sizes[j][i] = 0;
   }
   pulp->cut_size = 0;
   pulp->max_cut = 0;
+
+  if (has_vwgts) {
+    for (uint64_t j = 0; j < owpv; ++j)
+    {
+      part_weighted_sizes[j][WEIGHT_MAX_INDEX] = -INFINITY;
+      part_weighted_sizes[j][WEIGHT_SUM_INDEX] = 0;
+    }
+  }
 
   for (uint64_t i = 0; i < g->n_local; ++i)
   {
     uint64_t vert_index = i;
     int32_t part = pulp->local_parts[vert_index];
-    if (has_vwgts)
-      pulp->part_sizes[part] += g->vertex_weights[vert_index];
-    else
-      ++pulp->part_sizes[part];
+
+    /* part_sizes used to either be the total number of vertices or the total
+     * weight of vertices in one part, but since we are now tracking weights
+     * separately, it just always holds the total vertices. */
+    ++pulp->part_sizes[part];
+
+    if (has_vwgts) {
+      // FIXME: g->original_vweights are doubles, we crudely cast them to ints
+      // here.
+      for (uint64_t j = 0; j < owpv; ++j)
+      {
+        double plusweight = g->original_vweights[(i * owpv) + j];
+        part_weighted_sizes[j][part] += plusweight;
+      }
+    }
 
     uint64_t out_degree = out_degree(g, vert_index);
     uint64_t* outs = out_vertices(g, vert_index);
@@ -312,6 +345,11 @@ int part_eval_weighted(dist_graph_t* g, pulp_data_t* pulp)
         }
       }
     }
+  }
+
+  for (uint64_t weight = 0; weight < owpv; ++weight) {
+    MPI_Allreduce(MPI_IN_PLACE, part_weighted_sizes[weight], pulp->num_parts,
+                  MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
   }
 
   MPI_Allreduce(MPI_IN_PLACE, pulp->part_sizes, pulp->num_parts,
@@ -348,7 +386,6 @@ int part_eval_weighted(dist_graph_t* g, pulp_data_t* pulp)
   double ghost_balance =
     (double)max_ghost / ((double)global_ghost / (double)pulp->num_parts);
 
-
   int64_t max_v_size = 0;
   int32_t max_v_part = -1;
   int64_t max_e_size = 0;
@@ -372,6 +409,12 @@ int part_eval_weighted(dist_graph_t* g, pulp_data_t* pulp)
       max_c_size = pulp->part_cut_sizes[i];
       max_c_part = i;
     }
+
+    for (uint64_t wgt = 0; wgt < owpv; ++wgt) {
+      double& weight_max = part_weighted_sizes[wgt][WEIGHT_MAX_INDEX];
+      weight_max = std::max(weight_max, part_weighted_sizes[wgt][i]);
+      part_weighted_sizes[wgt][WEIGHT_SUM_INDEX] += part_weighted_sizes[wgt][i];
+    }
   }
 
   pulp->max_v = (double)max_v_size / ((double)part_size_sum / (double)pulp->num_parts);
@@ -381,6 +424,8 @@ int part_eval_weighted(dist_graph_t* g, pulp_data_t* pulp)
 
   if (procid == 0)
   {
+//#define OLD_EVAL_STATEMENTS
+#ifdef OLD_EVAL_STATEMENTS
     printf("EVAL ec: %li, vb: %2.3lf (%d, %li), eb: %2.3lf (%d, %li), cb: %2.3lf (%d, %li), gb: %2.3lf (%li)\n",
       pulp->cut_size,
       pulp->max_v, max_v_part, max_v_size,
@@ -391,6 +436,18 @@ int part_eval_weighted(dist_graph_t* g, pulp_data_t* pulp)
     for (int32_t i = 0; i < pulp->num_parts; ++i)
       printf("p: %d, v: %li, e: %li, cut: %li\n",
       i, pulp->part_sizes[i], pulp->part_edge_sizes[i], pulp->part_cut_sizes[i]);
+#else
+    printf("---------------------------------------------------------\n");
+    printf("EdgeCut: %li,", pulp->cut_size);
+    for (uint64_t i = 0; i < owpv; ++i) {
+      /* Same calculation as max_v above, but considering the sum of weights
+       * rather than vertex count. */
+      double max_weight_imbalance = part_weighted_sizes[i][WEIGHT_MAX_INDEX] / (part_weighted_sizes[i][WEIGHT_SUM_INDEX] / (double) pulp->num_parts);
+      // printf(" WeightBalance %ld: %2.3lf (max = %.f sum = %.f)", i, max_weight_imbalance, part_weighted_sizes[i][WEIGHT_MAX_INDEX], part_weighted_sizes[i][WEIGHT_SUM_INDEX]);
+      printf(" WeightBalance %ld: %2.3lf", i, max_weight_imbalance);
+    }
+    printf("\n");
+#endif
   }
 
   return 0;

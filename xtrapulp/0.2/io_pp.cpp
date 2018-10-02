@@ -156,7 +156,7 @@ int load_graph_edges_32(char *input_filename, graph_gen_data_t *ggi,
     if (ggi->unscaled_vweights == NULL) {
         throw_err("load_graph_edges(), unable to allocate vertex weight buffer", procid);
     }
-    ggi->weights_per_vertex = weights_per_vertex;
+    ggi->original_weights_per_vertex = weights_per_vertex;
   }
 
   /* bad hack: we don't know exactly how many edges are going to be read by the vertices of this
@@ -548,7 +548,7 @@ int exchange_edges(graph_gen_data_t *ggi, mpi_data_t* comm)
 void scale_weights(graph_gen_data_t* ggi, int scaling_method, int norming_method)
 {
     // for shorthand
-    const uint64_t wpv = ggi->weights_per_vertex;
+    const uint64_t wpv = ggi->original_weights_per_vertex;
 
     /* Scaling method values:
      * -1 = No scaling.
@@ -575,7 +575,7 @@ void scale_weights(graph_gen_data_t* ggi, int scaling_method, int norming_method
         *non_int_sentinel = 0;
 
         for (uint64_t j = 0; j < ggi->n_local; ++j) {
-            for (uint64_t i = 0; i < ggi->weights_per_vertex; ++i) {
+            for (uint64_t i = 0; i < wpv; ++i) {
                 double this_weight = ggi->unscaled_vweights[(j * wpv) + i];
                 local_weight_sum[i] += this_weight;
                 if (*non_int_sentinel == 0
@@ -602,7 +602,7 @@ void scale_weights(graph_gen_data_t* ggi, int scaling_method, int norming_method
         */
         double scale = 1.0;
 
-        for (uint64_t i = 0; i < ggi->weights_per_vertex; ++i) {
+        for (uint64_t i = 0; i < wpv; ++i) {
             if (*non_int_sentinel > 0 || global_weight_sum[i] < INT_EPSILON
                 || global_weight_sum[i] > MAX_ALLOWABLE_SUM) {
                 if (scaling_method == 0) {
@@ -646,45 +646,49 @@ void scale_weights(graph_gen_data_t* ggi, int scaling_method, int norming_method
          * as it is now, with wpv weights per vertex, copy them in as int32_t's,
          * and be done.
          */
+        ggi->weights_per_vertex = ggi->original_weights_per_vertex;
         ggi->vertex_weights = (int32_t*) calloc(wpv * ggi->n_local, sizeof(int32_t));
-        /* Note: This used to be uint64_t, but was changed to match dist_graph_t vertex weights. */
         for (uint64_t i = 0; i < wpv * ggi->n_local; ++i) {
             ggi->vertex_weights[i] = (int32_t) ggi->unscaled_vweights[i];
         }
-
-        free(ggi->unscaled_vweights);
-        ggi->unscaled_vweights = NULL;
-        return;
+        /* If not normed, the originals and the partitioning copy can just live
+         * in the same memory space. */
+        ggi->vertex_weights = ggi->vertex_weights;
     }
     else {
+        /* One weight per vertex. */
         ggi->vertex_weights = (int32_t*) calloc(ggi->n_local, sizeof(int32_t));
         ggi->weights_per_vertex = 1;
-    }
 
-    double result = 0;
-    for (uint64_t j = 0; j < ggi->n_local; ++j) {
-        result = 0;
-        for (uint64_t i = 0; i < wpv; ++i) {
-            const uint64_t index = (j * wpv) + i;
-            if (norming_method == 1) {
-                result += ggi->unscaled_vweights[index];
-            }
-            else if (norming_method == 2) {
-                // Possible overflow here? Is this a concern?
-                // TODO: should this norm in particular be done when we're still dealing with doubles?
-                result += (ggi->unscaled_vweights[index] * ggi->unscaled_vweights[index]);
-            }
-            else {
-                if (ggi->unscaled_vweights[index] > result) {
-                    result = ggi->unscaled_vweights[index];
+        double result = 0;
+        for (uint64_t j = 0; j < ggi->n_local; ++j) {
+            result = 0;
+            for (uint64_t i = 0; i < wpv; ++i) {
+                const uint64_t index = (j * wpv) + i;
+                if (norming_method == 1) {
+                    result += ggi->unscaled_vweights[index];
+                }
+                else if (norming_method == 2) {
+                    // Possible overflow here? Is this a concern?
+                    result += (ggi->unscaled_vweights[index] * ggi->unscaled_vweights[index]);
+                }
+                else {
+                    if (ggi->unscaled_vweights[index] > result) {
+                        result = ggi->unscaled_vweights[index];
+                    }
                 }
             }
+            if (norming_method == 2) {
+                result = sqrt(result);
+            }
+            ggi->vertex_weights[j] = (int32_t) result;
         }
-        if (norming_method == 2) {
-            result = sqrt(result);
-        }
-        ggi->vertex_weights[j] = (int32_t) result;
     }
+
+    /* We used to do this, but currently want to retain the unscaled vweights so
+     * we can use them in evaluation functions. */
+    // free(ggi->unscaled_vweights);
+    // ggi->unscaled_vweights = NULL;
 
     // for (uint64_t j=0; j<ggi->n_local; ++j) {
     //     printf("%d %d\n", procid, ggi->vertex_weights[j]);

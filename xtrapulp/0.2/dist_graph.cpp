@@ -76,6 +76,8 @@ int create_graph(graph_gen_data_t *ggi, dist_graph_t *g)
   g->m_local = ggi->m_local_edges;
   g->vertex_weights = ggi->vertex_weights;
   g->weights_per_vertex = ggi->weights_per_vertex;
+  g->original_vweights = ggi->unscaled_vweights;
+  g->original_weights_per_vertex = ggi->original_weights_per_vertex;
   g->vertex_weights_sum = NULL;
   g->edge_weights = NULL;
   g->map = (struct fast_map*)malloc(sizeof(struct fast_map));
@@ -157,6 +159,7 @@ int create_graph_serial(graph_gen_data_t *ggi, dist_graph_t *g)
   g->n_ghost = 0;
   g->n_total = g->n_local;
   g->vertex_weights = NULL;
+  g->original_vweights = NULL;
   g->edge_weights = NULL;
   g->map = (struct fast_map*)malloc(sizeof(struct fast_map));
 
@@ -230,6 +233,7 @@ int create_graph(dist_graph_t* g,
   g->m = m_global;
   g->m_local = m_local;
   g->vertex_weights = NULL;
+  g->original_vweights = NULL;
   g->vertex_weights_sum = NULL;
   g->edge_weights = NULL;
   g->map = (struct fast_map*)malloc(sizeof(struct fast_map));
@@ -291,6 +295,7 @@ int create_graph_serial(dist_graph_t* g,
   g->m_local = m_local;
   g->n_total = g->n_local;
   g->vertex_weights = NULL;
+  g->original_vweights = NULL;
   g->edge_weights = NULL;
   g->map = (struct fast_map*)malloc(sizeof(struct fast_map));
 
@@ -307,7 +312,7 @@ int create_graph_serial(dist_graph_t* g,
         }
     }
   }
-  else g->vertex_weights = NULL;
+
   if (edge_weights != NULL) g->edge_weights = edge_weights;
   else g->edge_weights = NULL;
 
@@ -345,6 +350,7 @@ int clear_graph(dist_graph_t *g)
   free(g->map);
 
   if (g->vertex_weights != NULL) free(g->vertex_weights);
+  if (g->original_vweights != NULL) free(g->original_vweights);
   if (g->edge_weights != NULL) free(g->edge_weights);
 
   if (debug) { printf("Task %d clear_graph() success\n", procid); }

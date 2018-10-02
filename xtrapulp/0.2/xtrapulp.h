@@ -90,6 +90,8 @@ struct dist_graph_t {
 
   int32_t* vertex_weights;
   uint64_t weights_per_vertex;
+  double*  original_vweights; // stored for eval purposes
+  uint64_t original_weights_per_vertex;
   int32_t* edge_weights;
   int64_t* vertex_weights_sum; // should have fixed size of weights_per_vertex
 

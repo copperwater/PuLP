@@ -67,9 +67,10 @@ struct graph_gen_data_t {
   uint64_t m_local_edges;      // not set by io functions
 
   uint64_t *gen_edges;         // actual edges read by this process
-  double   *unscaled_vweights; // raw weights read in; only used in io functions
+  double   *unscaled_vweights; // raw weights read in; only used in io and eval functions
   int32_t  *vertex_weights;    // weights for each vertex handled by this process
   uint64_t weights_per_vertex; // number of weights handled by this process
+  uint64_t original_weights_per_vertex;
 };
 
 int create_graph(graph_gen_data_t *ggi, dist_graph_t *g);
