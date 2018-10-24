@@ -62,6 +62,7 @@
 #include "pulp_v.h"
 #include "pulp_ve.h"
 #include "pulp_vec.h"
+#include "pulp_util.h"
 
 int procid, nprocs;
 int seed;
@@ -200,8 +201,17 @@ extern "C" int xtrapulp(dist_graph_t* g, pulp_part_control_t* ppc,
             vert_outer_iter, vert_balance_iter, vert_refine_iter,
             vert_balance, edge_balance);
           elt3 = timer() - elt3;
-          if (procid == 0 && verbose) printf("done: %9.6lf(s)\n", elt3);
+          if (procid == 0 && verbose) printf("\t\tdone: %9.6lf(s)\n", elt3);
       }
+#if 0
+      /* Deferred for the moment. Enable this only if testing with
+       * balance_outer_iter > 1, and you want to see intermediate results. */
+      if (boi < balance_outer_iter - 1) {
+        // We get a final evaluation anyway, don't duplicate on the last
+        // iteration of the loop
+        part_eval_weighted(g, pulp);
+      }
+#endif
       g->weights_per_vertex = saved_wpv;
       g->vertex_weights = saved_vertex_weights;
 #endif // ITERWEIGHTS
