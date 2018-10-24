@@ -184,9 +184,9 @@ extern "C" int xtrapulp(dist_graph_t* g, pulp_part_control_t* ppc,
       int32_t* saved_vertex_weights = g->vertex_weights; // have to restore them later
       uint64_t saved_wpv = g->weights_per_vertex;
       g->weights_per_vertex = 1;
-      printf("\t\t nlocal = %ld, wpv = %ld\n", g->n_local, saved_wpv);
+      // printf("\t\tnlocal = %ld, wpv = %ld\n", g->n_local, saved_wpv);
       int32_t eachweight[g->n_local];
-      for (uint64_t wi = 0; wi < g->weights_per_vertex; wi++) {
+      for (uint64_t wi = 0; wi < saved_wpv; wi++) {
           for (uint64_t ntmp = 0; ntmp < g->n_local; ntmp++) {
               eachweight[ntmp] = saved_vertex_weights[ntmp * saved_wpv + wi];
           }
