@@ -114,10 +114,16 @@ int load_graph_edges_32(char *input_filename, graph_gen_data_t *ggi,
     throw_err("load_graph_edges_32() bad fmt parameter: needs to be 010", procid);
   }
 
-  // ASSUMING all graphs are undirected: XtraPuLP should double the global
-  // number of edges because that's what it actually sees while reading the
-  // file, basically translating this to the directed form of the undirected graph.
-  nedges_global *= 2;
+  /* ASSUMING all graphs are undirected, one would think that XtraPuLP should
+   * double the global number of edges because the input file reports
+   * nedges_global as a count of undirected edges but then goes on to represent
+   * them as duplicated bidirectional edges, but this is actually not the case.
+   * This is because the expected output in ggi from this function is actually
+   * assumed to be a singly-directed graph with no bidirectional edges; then
+   * exchange_edges() later on turns them bidirectional.
+   * Everything still *works* if the edges are double-counted, but the overall
+   * edgecut will be inflated by a factor of 2.
+   */
 
   // set global number of vertices and this process's local number of vertices
   ggi->n = nverts_global;
@@ -194,14 +200,22 @@ int load_graph_edges_32(char *input_filename, graph_gen_data_t *ggi,
       }
       uint64_t endpoint;
       while (ss >> endpoint) {
+          // note: need to subtract one here because the file counts vertexes
+          // starting at 1 but the data structure (and cur_vert) count from 0.
+          endpoint--;
+
+          // Avoidance of double-counting edges: only count edges one way.
+          // (Any circular edges only get counted once, and don't really affect
+          // partitioning anyway since they'll never get cut).
+          if (cur_vert > endpoint)
+              continue;
+
           if (edgectr >= nedges_global) {
               printf("Process %d: trying to write %ld-th edge, was only aware of %ld globally\n",
                       procid, edgectr, nedges_global);
               throw_err("load_graph_edges(), writing in too many edges!", procid);
           }
           gen_edges_read[edgectr*2] = cur_vert;
-          // note: needs to be endpoint-1 because the file counts vertexes
-          // starting at 1 but the data structure (and cur_vert) count from 0.
           gen_edges_read[(edgectr*2) + 1] = endpoint-1;
           edgectr++;
       }
