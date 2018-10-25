@@ -338,7 +338,7 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
           (int32_t)tp.part_counts[(xs1024star_next(&xs) % num_max)];
       if (max_part != part)
       {
-        int64_t new_size = (int64_t)pulp->avg_size;
+        int64_t new_size = (int64_t)pulp->avg_size[0];
 
         pulp->part_size_changes[max_part] + 1 < 0 ?
           new_size = pulp->part_sizes[max_part] + pulp->part_size_changes[max_part] + 1 :
@@ -480,7 +480,8 @@ int pulp_v_weighted(dist_graph_t* g, mpi_data_t* comm, queue_data_t* q,
             pulp_data_t *pulp,
             uint64_t outer_iter,
             uint64_t balance_iter, uint64_t refine_iter,
-            double vert_balance, double edge_balance)
+            double vert_balance, double edge_balance,
+            uint64_t weight_index)
 {
   if (debug) { printf("Task %d pulp_v_weighted() start\n", procid); }
   double elt = 0.0;
@@ -501,7 +502,7 @@ int pulp_v_weighted(dist_graph_t* g, mpi_data_t* comm, queue_data_t* q,
 
   double tot_iter =
     (double)(outer_iter*(refine_iter+balance_iter));
-  double cur_iter = 0.0;
+  double cur_iter = 1.0;
   double multiplier = (double)nprocs*( (X - Y)*(cur_iter/tot_iter) + Y );
   //double running_bal = pulp->max_v;
   //double running_cut = (double)pulp->cut_size;
@@ -511,6 +512,32 @@ int pulp_v_weighted(dist_graph_t* g, mpi_data_t* comm, queue_data_t* q,
   uint64_t num_swapped_1 = 0;
   uint64_t num_swapped_2 = 0;
   comm->global_queue_size = 1;
+
+  // TODO: the code being implemented here is very similar to that
+  // recently added to part_eval_weighted; should these be refactored
+  // together somehow? Should it be made a field of the pulp structure?
+#define OBJECTIVE_WEIGHTS
+#ifdef OBJECTIVE_WEIGHTS
+  int32_t part_weighted_sizes[pulp->num_parts];
+  int32_t max_weighted_part = 0;
+  for (int32_t i = 0; i < pulp->num_parts; ++i) {
+    part_weighted_sizes[i] = 0;
+  }
+
+  if (has_vwgts) {
+    for (uint64_t i = 0; i < g->n_local; ++i) {
+      part_weighted_sizes[pulp->local_parts[i]] += g->vertex_weights[(i * g->weights_per_vertex) + weight_index ];
+    }
+  }
+  MPI_Allreduce(MPI_IN_PLACE, part_weighted_sizes, pulp->num_parts, MPI_INT32_T,
+                MPI_SUM, MPI_COMM_WORLD);
+  for (int32_t i = 0; i < pulp->num_parts; ++i) {
+    if (part_weighted_sizes[i] > max_weighted_part)
+      max_weighted_part = part_weighted_sizes[i];
+  }
+
+#endif
+
 #pragma omp parallel default(shared)
 {
   thread_queue_t tq;
@@ -537,9 +564,19 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
   {
     for (int32_t p = 0; p < pulp->num_parts; ++p)
     {
+#ifdef OBJECTIVE_WEIGHTS
+      // TODO: Instead of average part size in vertices and this part's size
+      // in vertices, use the average weight sum and this part's weight sum.
+      // Note that if ITERWEIGHTS is defined in xtrapulp.cpp,
+      // the calling code is already iterating on this multiple times, making it
+      // look like g has a single vertex weight, when this is actually the one
+      // weight we want to iterate on.
+      tp.part_weights[p] = (double) (max_weighted_part * pulp->num_parts) / (double) part_weighted_sizes[p];
+#else
       tp.part_weights[p] =
           vert_balance * pulp->avg_size[0] /
           ((double)pulp->part_sizes[p] + multiplier*(double)pulp->part_size_changes[p]) - 1.0;
+#endif
       if (tp.part_weights[p] < 0.0)
         tp.part_weights[p] = 0.0;
     }
@@ -549,7 +586,8 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
     {
       int32_t part = pulp->local_parts[vert_index];
       int32_t vert_weight = 1;
-      if (has_vwgts) vert_weight = g->vertex_weights[vert_index];
+      if (has_vwgts)
+          vert_weight = g->vertex_weights[(vert_index * g->weights_per_vertex) + weight_index];
 
       for (int32_t p = 0; p < pulp->num_parts; ++p)
         tp.part_counts[p] = 0.0;
@@ -562,6 +600,8 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
         uint64_t out_index = outs[j];
         int32_t part_out = pulp->local_parts[out_index];
         double weight_out = 1.0;
+        tp.part_counts[part_out] += weight_out;
+        /*
         if (has_ewgts) weight_out = (double)weights[j];
         if (out_index >= g->n_local)
         {
@@ -573,6 +613,7 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
           tp.part_counts[part_out] +=
                         (double)out_degree(g, out_index) * weight_out;
         }
+        */
       }
 
       int32_t max_part = part;
@@ -720,13 +761,21 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
 #pragma omp for schedule(guided) reduction(+:num_swapped_2) nowait
     for (uint64_t vert_index = 0; vert_index < g->n_local; ++vert_index)
     {
+      // Note: Going into this loop, all of pulp->part_size_changes[*] should be
+      // 0.
+
       int32_t part = pulp->local_parts[vert_index];
       int32_t vert_weight = 1;
-      if (has_vwgts) vert_weight = g->vertex_weights[vert_index];
 
+      // important: part_counts[*] gets reset to 0 here
       for (int32_t p = 0; p < pulp->num_parts; ++p)
         tp.part_counts[p] = 0.0;
 
+      // Outlink weighting: (ignoring edge weights for now)
+      // For each vertex that vert_index has an edge pointing to,
+      // increment part_counts by 1 for the part it's currently in.
+      // This is the only place part_counts gets set from.
+      //
       uint64_t out_degree = out_degree(g, vert_index);
       uint64_t* outs = out_vertices(g, vert_index);
       int32_t* weights = out_weights(g, vert_index);
@@ -739,6 +788,10 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
         tp.part_counts[part_out] += weight_out;
       }
 
+      // By the end of this loop:
+      // max_val is the maximum of all tp.part_counts[*].
+      // max_part is the part with that value for its part_counts.
+      // num_max is the number of parts that have the max_val.
       int32_t max_part = part;
       double max_val = 0.0;
       uint64_t num_max = 0;
@@ -757,24 +810,78 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
         }
       }
 
+      // there can be only one
       if (num_max > 1)
         max_part =
           (int32_t)tp.part_counts[(xs1024star_next(&xs) % num_max)];
 
+      // If vert_index is already *in* max_part, then don't do anything.
+      // If not, see if it should be moved to max_part.
       if (max_part != part)
       {
+        /* NEW CODE: the function argument weight_index is telling us which
+         * weight of g we're on. If we're on the first weight, we do the logic
+         * of this like normal: just see if we're unbalancing with respect to
+         * that weight. But if we're on the second weight, do the checks to see
+         * if we're unbalancing with respect to the second weight... AND also do
+         * the checks for the first weight and cancel the vertex send if the
+         * first weight doesn't check out.
+         */
+        bool passed = true;
+        for (uint64_t weightno = 0; weightno <= weight_index; ++weightno) {
 
-        int64_t new_size = (int64_t)pulp->avg_size[0];
+          // Get the correct weight to compare against.
+          vert_weight = g->vertex_weights[(vert_index * g->weights_per_vertex) + weightno];
 
-        pulp->part_size_changes[max_part] + (int64_t)vert_weight < 0 ?
-          new_size = pulp->part_sizes[max_part] + pulp->part_size_changes[max_part] + (int64_t)vert_weight :
-          new_size = (int64_t)((double)pulp->part_sizes[max_part] + multiplier*(double)pulp->part_size_changes[max_part] + (double)vert_weight);
+          // not sure what the point of initializing this is here, because it just
+          // gets reset below.
+          // int64_t new_size = (int64_t)pulp->avg_size[0];
+          double new_size;
 
+          // printf("%d vert_balance = %f g = %p\n", procid, vert_balance, g);
+          // TODO:
+          // Calculate potential new sizes on each constraint and weight
+          // Do checks to ensure balance isn't upset on any of the weights,
+          // do refinement based on that
 
-        /*printf("%d %d - %lu to %d (%li + %li) from %d (%li + %li) -- %li %li\n",
-          procid, omp_get_thread_num(), g->local_unmap[vert_index], max_part, pulp->part_sizes[max_part], pulp->part_size_changes[max_part], part, pulp->part_sizes[part], pulp->part_size_changes[part], new_size, (int64_t)(pulp->avg_size*vert_balance));*/
+          // previously, either possible option had set it to this, plus something
+          // else, which we now add below.
+          // Basically, the new size of max_part is at the core expected to be its
+          // current size plus the new weight.
+          new_size = ((double) pulp->part_sizes[max_part] + (double) vert_weight);
 
-        if (new_size < (int64_t)(pulp->avg_size[0]*vert_balance))
+          // If max_part's current size change is negative to a greater magnitude
+          // than this vertex's weight, add only the raw size change.
+          if (pulp->part_size_changes[max_part] + (int64_t)vert_weight < 0) {
+            new_size += (double) pulp->part_size_changes[max_part];
+          }
+          // However, if it's nonnegative or negative to a lesser magnitude than
+          // this vertex's weight, add it multiplied by multiplier.
+          else {
+            new_size += multiplier*(double)pulp->part_size_changes[max_part];
+          }
+          // printf("BBBBB %d %f\n", weightno, pulp->avg_size[weightno]);
+
+          /*printf("%d %d - %lu to %d (%li + %li) from %d (%li + %li) -- %li %li\n",
+            procid, omp_get_thread_num(), g->local_unmap[vert_index], max_part, pulp->part_sizes[max_part], pulp->part_size_changes[max_part], part, pulp->part_sizes[part], pulp->part_size_changes[part], new_size, (int64_t)(pulp->avg_size*vert_balance));*/
+
+          // Now that we know what the new size of max_part would be, see if it
+          // would break the vert_balance constraint. If not, then move this
+          // vertex to max_part.
+          // E.g. if vert_balance is 1.1 and the expected average size is 100,
+          // only move the vertex to max_part if max_part's weight sum would not
+          // become greater than 110 in the process.
+          //
+          // NOTE: This uses avg_size[0] because like everything else, most of the
+          // code isn't adapted to it. But avg_size is actually populated and is
+          // useful here! avg_size[x] represents the sum of all weights / # parts
+          // for weight #x in g.
+          if (new_size < pulp->avg_size[weightno]*vert_balance) {
+            passed = false;
+            break;
+          }
+        }
+        if (passed)
         {
           ++num_swapped_2;
       #pragma omp atomic
