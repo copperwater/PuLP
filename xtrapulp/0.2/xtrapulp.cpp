@@ -170,18 +170,34 @@ extern "C" int xtrapulp(dist_graph_t* g, pulp_part_control_t* ppc,
     elt2 = timer();
     if (do_vert_balance && (has_vert_weights || has_edge_weights))
     {
-// #define ITERWEIGHTS
+#define ITERWEIGHTS
 #ifndef ITERWEIGHTS
       if(procid == 0 && verbose)
         printf("\t\tDoing (weighted) vert balance and refinement stage\n");
       elt3 = timer();
       pulp_v_weighted(g, comm, q, pulp,
         vert_outer_iter, vert_balance_iter, vert_refine_iter,
-        vert_balance, edge_balance);
+        vert_balance, edge_balance, g->weights_per_vertex);
       elt3 = timer() - elt3;
       if (procid == 0 && verbose) printf("done: %9.6lf(s)\n", elt3);
 #else
       // Call pulp_v_weighted once for each set of weights in g individually.
+      // NEW code: still do this, but just call it once with an increasing
+      // weight_index.
+      for (uint64_t wi = 0; wi < g->weights_per_vertex; wi++) {
+        if (procid == 0 && verbose) {
+          printf("\t\tDoing (weighted) vert balance and refinement stage iteration %ld/%ld\n",
+                  wi+1, g->weights_per_vertex);
+        }
+        elt3 = timer();
+        pulp_v_weighted(g, comm, q, pulp,
+            vert_outer_iter, vert_balance_iter, vert_refine_iter,
+            vert_balance, edge_balance, wi);
+        elt3 = timer() - elt3;
+        if (procid == 0 && verbose) printf("\t\tdone: %9.6lf(s)\n", elt3);
+      }
+      // OLD code: below
+      /*
       int32_t* saved_vertex_weights = g->vertex_weights; // have to restore them later
       uint64_t saved_wpv = g->weights_per_vertex;
       g->weights_per_vertex = 1;
@@ -203,17 +219,16 @@ extern "C" int xtrapulp(dist_graph_t* g, pulp_part_control_t* ppc,
           elt3 = timer() - elt3;
           if (procid == 0 && verbose) printf("\t\tdone: %9.6lf(s)\n", elt3);
       }
-#if 0
-      /* Deferred for the moment. Enable this only if testing with
-       * balance_outer_iter > 1, and you want to see intermediate results. */
+      // Deferred for the moment. Enable this only if testing with
+      // balance_outer_iter > 1, and you want to see intermediate results.
       if (boi < balance_outer_iter - 1) {
         // We get a final evaluation anyway, don't duplicate on the last
         // iteration of the loop
         part_eval_weighted(g, pulp);
       }
-#endif
       g->weights_per_vertex = saved_wpv;
       g->vertex_weights = saved_vertex_weights;
+      */
 #endif // ITERWEIGHTS
     }
     else if (do_vert_balance)

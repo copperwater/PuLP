@@ -839,10 +839,6 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
           double new_size;
 
           // printf("%d vert_balance = %f g = %p\n", procid, vert_balance, g);
-          // TODO:
-          // Calculate potential new sizes on each constraint and weight
-          // Do checks to ensure balance isn't upset on any of the weights,
-          // do refinement based on that
 
           // previously, either possible option had set it to this, plus something
           // else, which we now add below.
@@ -860,7 +856,6 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
           else {
             new_size += multiplier*(double)pulp->part_size_changes[max_part];
           }
-          // printf("BBBBB %d %f\n", weightno, pulp->avg_size[weightno]);
 
           /*printf("%d %d - %lu to %d (%li + %li) from %d (%li + %li) -- %li %li\n",
             procid, omp_get_thread_num(), g->local_unmap[vert_index], max_part, pulp->part_sizes[max_part], pulp->part_size_changes[max_part], part, pulp->part_sizes[part], pulp->part_size_changes[part], new_size, (int64_t)(pulp->avg_size*vert_balance));*/
