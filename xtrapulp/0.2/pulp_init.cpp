@@ -799,7 +799,7 @@ void pulp_init_label_prop_weighted(dist_graph_t* g,
 #pragma omp single
 {
   clear_recvbuf_vid_data(comm);
-  update_pulp_data_weighted(g, pulp);
+  update_pulp_data_weighted(g, pulp, 0);
 }
 
 for (uint64_t cur_iter = 0; cur_iter < lp_num_iter; ++cur_iter)

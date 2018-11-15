@@ -483,7 +483,9 @@ int pulp_v_weighted(dist_graph_t* g, mpi_data_t* comm, queue_data_t* q,
             double vert_balance, double edge_balance,
             uint64_t weight_index)
 {
-  if (debug) { printf("Task %d pulp_v_weighted() start\n", procid); }
+  if (debug) {
+      printf("Task %d pulp_v_weighted() start, on weight index %li\n", procid, weight_index);
+  }
   double elt = 0.0;
   if (verbose) {
     MPI_Barrier(MPI_COMM_WORLD);
@@ -556,7 +558,7 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
 {
   //if (procid == 0) printf("EVAL ec V EB ------------------------------\n");
   //part_eval(g, pulp);
-  update_pulp_data_weighted(g, pulp);
+  update_pulp_data_weighted(g, pulp, weight_index);
   num_swapped_1 = 0;
 }
 
@@ -574,7 +576,7 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
       tp.part_weights[p] = (double) (max_weighted_part * pulp->num_parts) / (double) part_weighted_sizes[p];
 #else
       tp.part_weights[p] =
-          vert_balance * pulp->avg_size[0] /
+          vert_balance * pulp->avg_size[weight_index] /
           ((double)pulp->part_sizes[p] + multiplier*(double)pulp->part_size_changes[p]) - 1.0;
 #endif
       if (tp.part_weights[p] < 0.0)
@@ -645,8 +647,10 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
 
       if (max_part != part)
       {
-        /*printf("%d %d - %lu to %d (%li + %li) from %d (%li + %li), %f\n",
-          procid, omp_get_thread_num(), g->local_unmap[vert_index], max_part, pulp->part_sizes[max_part], pulp->part_size_changes[max_part], part, pulp->part_sizes[part], pulp->part_size_changes[part], max_val);*/
+        // printf("%d %d - %lu to %d (%li + %li) from %d (%li + %li), %f\n",
+        //   procid, omp_get_thread_num(),
+        //   g->local_unmap[vert_index], max_part, pulp->part_sizes[max_part], pulp->part_size_changes[max_part],
+        //   part, pulp->part_sizes[part], pulp->part_size_changes[part], max_val);
 
         ++num_swapped_1;
     #pragma omp atomic
@@ -655,10 +659,10 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
         pulp->part_size_changes[max_part] += vert_weight;
 
         tp.part_weights[part] =
-          vert_balance * pulp->avg_size[0] /
+          vert_balance * pulp->avg_size[weight_index] /
           ((double)pulp->part_sizes[part] + multiplier*(double)pulp->part_size_changes[part]) - 1.0;
         tp.part_weights[max_part] =
-          vert_balance * pulp->avg_size[0] /
+          vert_balance * pulp->avg_size[weight_index] /
           ((double)pulp->part_sizes[max_part] + multiplier*(double)pulp->part_size_changes[max_part]) - 1.0;
 
         if (tp.part_weights[part] < 0.0)
@@ -739,12 +743,11 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
     cur_iter += 1.0;
     multiplier = (double)nprocs*( (X - Y)*(cur_iter/tot_iter) + Y );
 
-    if (debug) printf("Task %d num_swapped_1 %lu \n", procid, num_swapped_1);
+    if (debug) printf("Task %d bal_iter %lu num_swapped_1 %lu \n", procid, cur_bal_iter, num_swapped_1);
     num_swapped_1 = 0;
 }
 
   }// end balance loop
-
 
 #pragma omp single
 {
@@ -753,7 +756,6 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
   //update_pulp_data_weighted(g, pulp);
   num_swapped_2 = 0;
 }
-
 
   for (uint64_t cur_ref_iter = 0; cur_ref_iter < refine_iter; ++cur_ref_iter)
   {
@@ -835,7 +837,6 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
 
           // not sure what the point of initializing this is here, because it just
           // gets reset below.
-          // int64_t new_size = (int64_t)pulp->avg_size[0];
           double new_size;
 
           // printf("%d vert_balance = %f g = %p\n", procid, vert_balance, g);
@@ -867,7 +868,7 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
           // only move the vertex to max_part if max_part's weight sum would not
           // become greater than 110 in the process.
           //
-          // NOTE: This uses avg_size[0] because like everything else, most of the
+          // NOTE: This used avg_size[0] because like everything else, most of the
           // code isn't adapted to it. But avg_size is actually populated and is
           // useful here! avg_size[x] represents the sum of all weights / # parts
           // for weight #x in g.
@@ -958,7 +959,7 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
     cur_iter += 1.0;
     multiplier = (double)nprocs*( (X - Y)*(cur_iter/tot_iter) + Y );
 
-    if (debug) printf("Task %d num_swapped_2 %lu \n", procid, num_swapped_2);
+    // if (debug) printf("Task %d ref_iter %lu num_swapped_2 %lu \n", procid, cur_ref_iter, num_swapped_2);
     num_swapped_2 = 0;
 }
 

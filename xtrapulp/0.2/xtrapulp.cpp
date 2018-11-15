@@ -100,7 +100,7 @@ extern "C" int xtrapulp(dist_graph_t* g, pulp_part_control_t* ppc,
   double do_label_prop = ppc->do_lp_init;
   double do_nonrandom_init = ppc->do_bfs_init;
   verbose = ppc->verbose_output;
-  debug = false;
+  // debug = false;
   bool do_vert_balance = true;
   bool do_edge_balance = ppc->do_edge_balance;
   bool do_maxcut_balance = ppc->do_maxcut_balance;
@@ -193,8 +193,10 @@ extern "C" int xtrapulp(dist_graph_t* g, pulp_part_control_t* ppc,
         pulp_v_weighted(g, comm, q, pulp,
             vert_outer_iter, vert_balance_iter, vert_refine_iter,
             vert_balance, edge_balance, wi);
+        part_eval_weighted(g, pulp);
         elt3 = timer() - elt3;
         if (procid == 0 && verbose) printf("\t\tdone: %9.6lf(s)\n", elt3);
+        break;
       }
       // OLD code: below
       /*

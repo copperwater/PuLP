@@ -207,7 +207,7 @@ void update_pulp_data(dist_graph_t* g, pulp_data_t* pulp)
   }
 }
 
-void update_pulp_data_weighted(dist_graph_t* g, pulp_data_t* pulp)
+void update_pulp_data_weighted(dist_graph_t* g, pulp_data_t* pulp, uint64_t weight_index)
 {
   bool has_vwgts = (g->vertex_weights != NULL);
   bool has_ewgts = (g->edge_weights != NULL);
@@ -274,8 +274,8 @@ void update_pulp_data_weighted(dist_graph_t* g, pulp_data_t* pulp)
   pulp->max_cut = 0;
   for (int32_t p = 0; p < pulp->num_parts; ++p)
   {
-    if ((double)pulp->part_sizes[p] / pulp->avg_size[0] > pulp->max_v)
-      pulp->max_v = (double)pulp->part_sizes[p] / pulp->avg_size[0];
+    if ((double)pulp->part_sizes[p] / pulp->avg_size[weight_index] > pulp->max_v)
+      pulp->max_v = (double)pulp->part_sizes[p] / pulp->avg_size[weight_index];
     if ((double)pulp->part_edge_sizes[p] / pulp->avg_edge_size > pulp->max_e)
       pulp->max_e = (double)pulp->part_edge_sizes[p] / pulp->avg_edge_size;
     if ((double)pulp->part_cut_sizes[p] / pulp->avg_cut_size > pulp->max_c)

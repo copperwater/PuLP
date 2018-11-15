@@ -91,7 +91,7 @@ void init_pulp_data(dist_graph_t* g, pulp_data_t* pulp, int32_t num_parts);
 
 void update_pulp_data(dist_graph_t* g, pulp_data_t* pulp);
 
-void update_pulp_data_weighted(dist_graph_t* g, pulp_data_t* pulp);
+void update_pulp_data_weighted(dist_graph_t* g, pulp_data_t* pulp, uint64_t weight_index);
 
 void clear_pulp_data(pulp_data_t* pulp);
 

@@ -597,7 +597,7 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
 {
   //if (procid == 0) printf("EVAL ec VE EB ------------------------------\n");
   //part_eval(g, pulp);
-  update_pulp_data_weighted(g, pulp);
+  update_pulp_data_weighted(g, pulp, 0);
   num_swapped_1 = 0;
 }
 
@@ -803,7 +803,7 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
 {
   //if (procid == 0) printf("EVAL ec VE ER ------------------------------\n");
   //part_eval(g, pulp);
-  update_pulp_data_weighted(g, pulp);
+  update_pulp_data_weighted(g, pulp, 0);
   num_swapped_2 = 0;
 }
 
