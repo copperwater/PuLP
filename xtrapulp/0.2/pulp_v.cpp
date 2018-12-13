@@ -835,17 +835,11 @@ for (uint64_t cur_outer_iter = 0; cur_outer_iter < outer_iter; ++cur_outer_iter)
           // Get the correct weight to compare against.
           vert_weight = g->vertex_weights[(vert_index * g->weights_per_vertex) + weightno];
 
-          // not sure what the point of initializing this is here, because it just
-          // gets reset below.
-          double new_size;
-
-          // printf("%d vert_balance = %f g = %p\n", procid, vert_balance, g);
-
           // previously, either possible option had set it to this, plus something
           // else, which we now add below.
           // Basically, the new size of max_part is at the core expected to be its
           // current size plus the new weight.
-          new_size = ((double) pulp->part_sizes[max_part] + (double) vert_weight);
+          double new_size = ((double) pulp->part_sizes[max_part] + (double) vert_weight);
 
           // If max_part's current size change is negative to a greater magnitude
           // than this vertex's weight, add only the raw size change.

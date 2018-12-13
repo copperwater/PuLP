@@ -231,12 +231,6 @@ int load_graph_edges_32(char *input_filename, graph_gen_data_t *ggi,
       ggi->gen_edges[i] = gen_edges_read[i];
   }
 
-  /* // possibly use MPI_Allreduce to check this?
-  if (edgectr != nedges_global) {
-      printf("edges read = %ld - header = %ld", edgectr, nedges_global);
-      throw_err("load_graph_edges_32() number of edges read doesn't match header", procid);
-  }
-  */
 #else /* if EBIN */
 
   FILE *infp = fopen(input_filename, "rb");
@@ -701,10 +695,13 @@ void scale_weights(graph_gen_data_t* ggi, int scaling_method, int norming_method
 
     /* We used to do this, but currently want to retain the unscaled vweights so
      * we can use them in evaluation functions. */
-    // free(ggi->unscaled_vweights);
-    // ggi->unscaled_vweights = NULL;
+    /*
+    free(ggi->unscaled_vweights);
+    ggi->unscaled_vweights = NULL;
 
-    // for (uint64_t j=0; j<ggi->n_local; ++j) {
-    //     printf("%d %d\n", procid, ggi->vertex_weights[j]);
-    // }
+    for (uint64_t j=0; j<ggi->n_local; ++j) {
+        printf("%d %d\n", procid, ggi->vertex_weights[j]);
+    }
+    */
 }
+

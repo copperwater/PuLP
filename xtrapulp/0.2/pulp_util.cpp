@@ -424,7 +424,6 @@ int part_eval_weighted(dist_graph_t* g, pulp_data_t* pulp)
 
   if (procid == 0)
   {
-//#define OLD_EVAL_STATEMENTS
 #ifdef OLD_EVAL_STATEMENTS
     printf("EVAL ec: %li, vb: %2.3lf (%d, %li), eb: %2.3lf (%d, %li), cb: %2.3lf (%d, %li), gb: %2.3lf (%li)\n",
       pulp->cut_size,
@@ -443,7 +442,6 @@ int part_eval_weighted(dist_graph_t* g, pulp_data_t* pulp)
       /* Same calculation as max_v above, but considering the sum of weights
        * rather than vertex count. */
       double max_weight_imbalance = part_weighted_sizes[i][WEIGHT_MAX_INDEX] / (part_weighted_sizes[i][WEIGHT_SUM_INDEX] / (double) pulp->num_parts);
-      // printf(" WeightBalance %ld: %2.3lf (max = %.f sum = %.f)", i, max_weight_imbalance, part_weighted_sizes[i][WEIGHT_MAX_INDEX], part_weighted_sizes[i][WEIGHT_SUM_INDEX]);
       printf(" WeightBalance %ld: %2.3lf", i, max_weight_imbalance);
     }
     printf("\n");

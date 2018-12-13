@@ -100,7 +100,7 @@ extern "C" int xtrapulp(dist_graph_t* g, pulp_part_control_t* ppc,
   double do_label_prop = ppc->do_lp_init;
   double do_nonrandom_init = ppc->do_bfs_init;
   verbose = ppc->verbose_output;
-  // debug = false;
+  debug = false;
   bool do_vert_balance = true;
   bool do_edge_balance = ppc->do_edge_balance;
   bool do_maxcut_balance = ppc->do_maxcut_balance;
@@ -193,17 +193,18 @@ extern "C" int xtrapulp(dist_graph_t* g, pulp_part_control_t* ppc,
         pulp_v_weighted(g, comm, q, pulp,
             vert_outer_iter, vert_balance_iter, vert_refine_iter,
             vert_balance, edge_balance, wi);
-        part_eval_weighted(g, pulp);
+        // if (procid == 0) part_eval_weighted(g, pulp);
         elt3 = timer() - elt3;
         if (procid == 0 && verbose) printf("\t\tdone: %9.6lf(s)\n", elt3);
-        break;
       }
-      // OLD code: below
-      /*
+#ifdef RUDIMENTARY_ITERWEIGHTING
+      // Older scheme in which we just treat g as if it had one weight,
+      // repeatedly swap in the new set of weights, and call pulp_v_weighted on
+      // each set of weights successively.
       int32_t* saved_vertex_weights = g->vertex_weights; // have to restore them later
       uint64_t saved_wpv = g->weights_per_vertex;
       g->weights_per_vertex = 1;
-      // printf("\t\tnlocal = %ld, wpv = %ld\n", g->n_local, saved_wpv);
+
       int32_t eachweight[g->n_local];
       for (uint64_t wi = 0; wi < saved_wpv; wi++) {
           for (uint64_t ntmp = 0; ntmp < g->n_local; ntmp++) {
@@ -223,6 +224,7 @@ extern "C" int xtrapulp(dist_graph_t* g, pulp_part_control_t* ppc,
       }
       // Deferred for the moment. Enable this only if testing with
       // balance_outer_iter > 1, and you want to see intermediate results.
+      /*
       if (boi < balance_outer_iter - 1) {
         // We get a final evaluation anyway, don't duplicate on the last
         // iteration of the loop
@@ -231,6 +233,7 @@ extern "C" int xtrapulp(dist_graph_t* g, pulp_part_control_t* ppc,
       g->weights_per_vertex = saved_wpv;
       g->vertex_weights = saved_vertex_weights;
       */
+#endif // RUDIMENTARY_ITERWEIGHTING
 #endif // ITERWEIGHTS
     }
     else if (do_vert_balance)
